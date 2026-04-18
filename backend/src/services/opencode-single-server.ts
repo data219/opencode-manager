@@ -19,11 +19,72 @@ import { SettingsService } from './settings'
 import { getWorkspacePath, getOpenCodeConfigFilePath, ENV } from '@opencode-manager/shared/config/env'
 import type { Database } from 'bun:sqlite'
 import { compareVersions } from '../utils/version-utils'
+import { patchOpenCodeConfig } from './proxy'
 
 const OPENCODE_SERVER_PORT = ENV.OPENCODE.PORT
 const OPENCODE_SERVER_HOST = ENV.OPENCODE.HOST
+const OPENCODE_SERVER_PUBLIC_URL = ENV.OPENCODE.PUBLIC_URL
+const OPENCODE_SERVER_PASSWORD = ENV.OPENCODE.SERVER_PASSWORD
+const OPENCODE_SERVER_USERNAME = ENV.OPENCODE.SERVER_USERNAME
+const OPENCODE_BASIC_AUTH = OPENCODE_SERVER_PASSWORD
+  ? `Basic ${Buffer.from(`${OPENCODE_SERVER_USERNAME}:${OPENCODE_SERVER_PASSWORD}`).toString('base64')}`
+  : ''
 const MIN_OPENCODE_VERSION = '1.0.137'
 const MAX_STDERR_SIZE = 10240
+
+type StartupValidationIssue = {
+  path: string
+  message: string
+}
+
+export class ConfigReloadError extends Error {
+  validationIssues: StartupValidationIssue[]
+  removedFields: string[]
+
+  constructor(message: string, validationIssues: StartupValidationIssue[] = [], removedFields: string[] = []) {
+    super(message)
+    this.name = 'ConfigReloadError'
+    this.validationIssues = validationIssues
+    this.removedFields = removedFields
+  }
+}
+
+function parseStartupValidationIssues(stderrOutput: string): StartupValidationIssue[] {
+  const match = stderrOutput.match(/ZodError:\s*(\[[\s\S]*?\])(?:\n\s+at |$)/)
+  if (!match?.[1]) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]) as Array<{ path?: unknown; message?: unknown }>
+    return parsed
+      .map((issue) => ({
+        path: Array.isArray(issue.path) && issue.path.length > 0 ? issue.path.join('.') : 'root',
+        message: typeof issue.message === 'string' ? issue.message : 'Invalid value',
+      }))
+      .filter((issue) => issue.message)
+  } catch {
+    return []
+  }
+}
+
+function formatStartupError(stderrOutput: string, fallback: string): string {
+  const validationIssues = parseStartupValidationIssues(stderrOutput)
+  if (validationIssues.length === 0) {
+    return fallback
+  }
+
+  const summary = validationIssues
+    .slice(0, 8)
+    .map((issue) => `${issue.path}: ${issue.message}`)
+    .join('; ')
+
+  const remainder = validationIssues.length > 8
+    ? ` (${validationIssues.length - 8} more issue${validationIssues.length - 8 === 1 ? '' : 's'})`
+    : ''
+
+  return `OpenCode config validation failed: ${summary}${remainder}`
+}
 
 // Helper getters to ensure values are computed at runtime (not module load time)
 // This allows proper mocking in tests
@@ -178,6 +239,13 @@ class OpenCodeServerManager {
 
     let stderrOutput = ''
 
+    const cleanEnv = { ...process.env }
+    delete cleanEnv.OPENCODE_SERVER_PASSWORD
+    delete cleanEnv.OPENCODE_RUN_ID
+    delete cleanEnv.OPENCODE_PROCESS_ROLE
+    delete cleanEnv.OPENCODE_PID
+    delete cleanEnv.OPENCODE
+
     this.serverProcess = spawn(
       'opencode',
       ['serve', '--port', OPENCODE_SERVER_PORT.toString(), '--hostname', OPENCODE_SERVER_HOST],
@@ -186,12 +254,19 @@ class OpenCodeServerManager {
         detached: !isDevelopment,
         stdio: isDevelopment ? 'inherit' : ['ignore', 'pipe', 'pipe'],
         env: {
-          ...process.env,
+          ...cleanEnv,
           ...gitEnv,
           ...gitIdentityEnv,
           GIT_SSH_COMMAND: gitSshCommand,
           XDG_DATA_HOME: path.join(openCodeServerDirectory, '.opencode/state'),
           XDG_CONFIG_HOME: path.join(openCodeServerDirectory, '.config'),
+          ...(OPENCODE_SERVER_PUBLIC_URL ? { OPENCODE_PUBLIC_URL: OPENCODE_SERVER_PUBLIC_URL } : {}),
+          ...(OPENCODE_SERVER_PASSWORD
+            ? {
+                OPENCODE_SERVER_PASSWORD,
+                OPENCODE_SERVER_USERNAME,
+              }
+            : {}),
           OPENCODE_CONFIG: openCodeConfigPath,
         }
       }
@@ -208,7 +283,8 @@ class OpenCodeServerManager {
 
     this.serverProcess.on('exit', (code, signal) => {
       if (code !== null && code !== 0) {
-        this.lastStartupError = `Server exited with code ${code}${stderrOutput ? `: ${stderrOutput.slice(-500)}` : ''}`
+        const fallback = `Server exited with code ${code}${stderrOutput ? `: ${stderrOutput.slice(-500)}` : ''}`
+        this.lastStartupError = formatStartupError(stderrOutput, fallback)
         logger.error('OpenCode server process exited:', this.lastStartupError)
       } else if (signal) {
         this.lastStartupError = `Server terminated by signal ${signal}`
@@ -222,7 +298,8 @@ class OpenCodeServerManager {
 
     const healthy = await this.waitForHealth(30000)
     if (!healthy) {
-      this.lastStartupError = `Server failed to become healthy after 30s${stderrOutput ? `. Last error: ${stderrOutput.slice(-500)}` : ''}`
+      const fallback = `Server failed to become healthy after 30s${stderrOutput ? `. Last error: ${stderrOutput.slice(-500)}` : ''}`
+      this.lastStartupError = formatStartupError(stderrOutput, fallback)
       throw new Error('OpenCode server failed to become healthy')
     }
 
@@ -327,24 +404,24 @@ class OpenCodeServerManager {
   async reloadConfig(): Promise<void> {
     logger.info('Reloading OpenCode configuration (via API)')
     try {
-      const response = await fetch(`http://${OPENCODE_SERVER_HOST}:${OPENCODE_SERVER_PORT}/config`, {
-        method: 'GET'
-      })
+      const configPath = getOpenCodeConfigFilePath()
+      const fileContent = await fs.readFile(configPath, 'utf-8')
+      const fileConfig = JSON.parse(fileContent) as Record<string, unknown>
+      logger.info(`Read config from file for reload: ${configPath}`)
 
-      if (!response.ok) {
-        throw new Error(`Failed to get current config: ${response.status}`)
-      }
-
-      const currentConfig = await response.json()
-      logger.info('Triggering OpenCode config reload via PATCH')
-      const patchResponse = await fetch(`http://${OPENCODE_SERVER_HOST}:${OPENCODE_SERVER_PORT}/config`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(currentConfig)
-      })
-
-      if (!patchResponse.ok) {
-        throw new Error(`Failed to reload config: ${patchResponse.status}`)
+      const patchResult = await patchOpenCodeConfig(fileConfig)
+      if (!patchResult.success) {
+        const errorMessage = patchResult.error || 'Failed to reload config'
+        const validationIssues = patchResult.details || []
+        const removedFields = patchResult.removedFields || []
+        if (validationIssues.length > 0) {
+          const issueSummary = validationIssues.map((d) => `${d.path}: ${d.message}`).join('; ')
+          logger.error(`Config reload validation errors: ${issueSummary}`)
+        }
+        if (removedFields.length > 0) {
+          logger.info(`Removed fields during config reload: ${removedFields.join(', ')}`)
+        }
+        throw new ConfigReloadError(errorMessage, validationIssues, removedFields)
       }
 
       logger.info('OpenCode configuration reloaded successfully')
@@ -391,8 +468,13 @@ class OpenCodeServerManager {
 
   async checkHealth(): Promise<boolean> {
     try {
+      const headers: Record<string, string> = {}
+      if (OPENCODE_BASIC_AUTH) {
+        headers.Authorization = OPENCODE_BASIC_AUTH
+      }
       const response = await fetch(`http://${OPENCODE_SERVER_HOST}:${OPENCODE_SERVER_PORT}/doc`, {
-        signal: AbortSignal.timeout(3000)
+        signal: AbortSignal.timeout(3000),
+        headers
       })
       return response.ok
     } catch {

@@ -53,6 +53,9 @@ export const ENV = {
   OPENCODE: {
     PORT: getEnvNumber('OPENCODE_SERVER_PORT', DEFAULTS.OPENCODE.PORT),
     HOST: getEnvString('OPENCODE_HOST', DEFAULTS.OPENCODE.HOST),
+    PUBLIC_URL: getEnvString('OPENCODE_PUBLIC_URL', ''), // Public URL for OAuth callbacks
+    SERVER_PASSWORD: getEnvString('OPENCODE_SERVER_PASSWORD', ''),
+    SERVER_USERNAME: getEnvString('OPENCODE_SERVER_USERNAME', 'opencode'),
   },
 
   DATABASE: {
@@ -91,7 +94,7 @@ export const ENV = {
 
   AUTH: {
     SECRET: getEnvString('AUTH_SECRET', process.env.NODE_ENV === 'production' ? '' : generateDefaultSecret()),
-    TRUSTED_ORIGINS: getEnvString('AUTH_TRUSTED_ORIGINS', 'http://localhost:5173,http://localhost:5003'),
+    TRUSTED_ORIGINS: getEnvString('AUTH_TRUSTED_ORIGINS', 'http://localhost:5173,http://localhost:5003,https://argentina-somatopleuric-chauncey.ngrok-free.dev'),
     SECURE_COOKIES: getEnvBoolean('AUTH_SECURE_COOKIES', getEnvString('NODE_ENV', 'development') === 'production'),
     ADMIN_EMAIL: process.env.ADMIN_EMAIL,
     ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,

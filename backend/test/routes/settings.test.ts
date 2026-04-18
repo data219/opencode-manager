@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { execSync, spawnSync } from 'child_process'
 
+const mockGetSettings = vi.fn()
+const mockUpdateSettings = vi.fn()
+const mockSaveLastKnownGoodConfig = vi.fn()
+const mockCreateOpenCodeConfig = vi.fn()
+const mockUpdateOpenCodeConfig = vi.fn()
+const mockDeleteOpenCodeConfig = vi.fn()
+const mockGetOpenCodeConfigByName = vi.fn()
+const mockSetDefaultOpenCodeConfig = vi.fn()
+
 vi.mock('fs', () => ({
   existsSync: vi.fn(() => false),
   promises: {
@@ -36,8 +45,14 @@ vi.mock('../../src/constants', () => ({
 
 vi.mock('../../src/services/settings', () => ({
   SettingsService: vi.fn().mockImplementation(() => ({
-    getSettings: vi.fn(),
-    updateSettings: vi.fn(),
+    getSettings: mockGetSettings,
+    updateSettings: mockUpdateSettings,
+    saveLastKnownGoodConfig: mockSaveLastKnownGoodConfig,
+    createOpenCodeConfig: mockCreateOpenCodeConfig,
+    updateOpenCodeConfig: mockUpdateOpenCodeConfig,
+    deleteOpenCodeConfig: mockDeleteOpenCodeConfig,
+    getOpenCodeConfigByName: mockGetOpenCodeConfigByName,
+    setDefaultOpenCodeConfig: mockSetDefaultOpenCodeConfig,
   })),
 }))
 
@@ -52,17 +67,54 @@ vi.mock('../../src/services/proxy', () => ({
   proxyToOpenCodeWithDirectory: vi.fn(),
 }))
 
-vi.mock('../../src/services/opencode-single-server', () => ({
-  opencodeServerManager: {
-    getVersion: vi.fn(),
-    fetchVersion: vi.fn(),
-    reloadConfig: vi.fn(),
-    restart: vi.fn(),
-    clearStartupError: vi.fn(),
-    getLastStartupError: vi.fn(),
-    setDatabase: vi.fn(),
-    reinitializeBinDirectory: vi.fn(),
+vi.mock('../../src/services/opencode-single-server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/services/opencode-single-server')>()
+  
+  class MockConfigReloadError extends Error {
+    validationIssues: Array<{ path: string; message: string }>
+    removedFields: string[]
+
+    constructor(message: string, validationIssues: Array<{ path: string; message: string }> = [], removedFields: string[] = []) {
+      super(message)
+      this.name = 'ConfigReloadError'
+      this.validationIssues = validationIssues
+      this.removedFields = removedFields
+    }
+  }
+
+  return {
+    ...actual,
+    opencodeServerManager: {
+      getVersion: vi.fn(),
+      fetchVersion: vi.fn(),
+      reloadConfig: vi.fn(),
+      restart: vi.fn(),
+      clearStartupError: vi.fn(),
+      getLastStartupError: vi.fn(),
+      setDatabase: vi.fn(),
+      reinitializeBinDirectory: vi.fn(),
+    },
+    ConfigReloadError: MockConfigReloadError,
+  }
+})
+
+vi.mock('../../src/services/opencode-import', () => ({
+  OpenCodeImportProtectionError: class OpenCodeImportProtectionError extends Error {
+    code = 'OPENCODE_IMPORT_PROTECTED'
+    detail: string
+
+    constructor(detail: string) {
+      super('OpenCode host import was blocked to protect existing workspace state')
+      this.detail = detail
+    }
   },
+  getOpenCodeImportStatus: vi.fn(),
+  syncOpenCodeImport: vi.fn(),
+  getImportedSessionDirectories: vi.fn(),
+}))
+
+vi.mock('../../src/services/repo', () => ({
+  relinkReposFromSessionDirectories: vi.fn(),
 }))
 
 vi.mock('@opencode-manager/shared/config/env', () => ({
@@ -90,7 +142,11 @@ vi.mock('@opencode-manager/shared/config/env', () => ({
 }))
 
 import { createSettingsRoutes } from '../../src/routes/settings'
-import { opencodeServerManager } from '../../src/services/opencode-single-server'
+import { writeFileContent } from '../../src/services/file-operations'
+import { getImportedSessionDirectories, getOpenCodeImportStatus, OpenCodeImportProtectionError, syncOpenCodeImport } from '../../src/services/opencode-import'
+import { relinkReposFromSessionDirectories } from '../../src/services/repo'
+import { opencodeServerManager, ConfigReloadError } from '../../src/services/opencode-single-server'
+import { patchOpenCodeConfig } from '../../src/services/proxy'
 
 const mockExecSync = execSync as ReturnType<typeof vi.fn>
 const mockSpawnSync = spawnSync as ReturnType<typeof vi.fn>
@@ -99,6 +155,12 @@ const mockFetchVersion = opencodeServerManager.fetchVersion as ReturnType<typeof
 const mockReloadConfig = opencodeServerManager.reloadConfig as ReturnType<typeof vi.fn>
 const mockRestart = opencodeServerManager.restart as ReturnType<typeof vi.fn>
 const mockClearStartupError = opencodeServerManager.clearStartupError as ReturnType<typeof vi.fn>
+const mockGetOpenCodeImportStatus = getOpenCodeImportStatus as ReturnType<typeof vi.fn>
+const mockSyncOpenCodeImport = syncOpenCodeImport as ReturnType<typeof vi.fn>
+const mockGetImportedSessionDirectories = getImportedSessionDirectories as ReturnType<typeof vi.fn>
+const mockRelinkReposFromSessionDirectories = relinkReposFromSessionDirectories as ReturnType<typeof vi.fn>
+const mockWriteFileContent = writeFileContent as ReturnType<typeof vi.fn>
+const mockPatchOpenCodeConfig = patchOpenCodeConfig as ReturnType<typeof vi.fn>
 
 describe('Settings Routes - OpenCode Upgrade', () => {
   let settingsApp: ReturnType<typeof createSettingsRoutes>
@@ -112,13 +174,379 @@ describe('Settings Routes - OpenCode Upgrade', () => {
     mockReloadConfig.mockReset()
     mockRestart.mockReset()
     mockClearStartupError.mockReset()
+    mockGetSettings.mockReset()
+    mockUpdateSettings.mockReset()
+    mockSaveLastKnownGoodConfig.mockReset()
+    mockCreateOpenCodeConfig.mockReset()
+    mockUpdateOpenCodeConfig.mockReset()
+    mockDeleteOpenCodeConfig.mockReset()
+    mockGetOpenCodeConfigByName.mockReset()
+    mockSetDefaultOpenCodeConfig.mockReset()
+    mockGetOpenCodeImportStatus.mockReset()
+    mockSyncOpenCodeImport.mockReset()
+    mockGetImportedSessionDirectories.mockReset()
+    mockRelinkReposFromSessionDirectories.mockReset()
+    mockWriteFileContent.mockReset()
+    mockPatchOpenCodeConfig.mockReset()
     
     testDb = {} as any
-    settingsApp = createSettingsRoutes(testDb)
+    settingsApp = createSettingsRoutes(testDb, { getGitEnvironment: vi.fn().mockReturnValue({}) } as any)
 
     mockReloadConfig.mockResolvedValue(undefined)
     mockRestart.mockResolvedValue(undefined)
     mockClearStartupError.mockReturnValue(undefined)
+    mockPatchOpenCodeConfig.mockResolvedValue({ success: true, appliedConfig: { $schema: 'https://opencode.ai/config.json' } })
+    mockWriteFileContent.mockResolvedValue(undefined)
+    mockGetOpenCodeImportStatus.mockResolvedValue({
+      configSourcePath: null,
+      stateSourcePath: null,
+      workspaceConfigPath: '/tmp/test-workspace/.config/opencode/opencode.json',
+      workspaceStatePath: '/tmp/test-workspace/.opencode/state/opencode',
+      workspaceStateExists: false,
+    })
+    mockGetImportedSessionDirectories.mockResolvedValue({
+      directories: ['/Users/test/project-a', '/Users/test/project-b/apps/web'],
+    })
+    mockRelinkReposFromSessionDirectories.mockResolvedValue({
+      repos: [],
+      relinkedCount: 0,
+      existingCount: 0,
+      nonRepoPathCount: 0,
+      duplicatePathCount: 0,
+      errors: [],
+    })
+  })
+
+  describe('OpenCode config routes', () => {
+    it('should reject create-as-default when runtime validation fails', async () => {
+      mockCreateOpenCodeConfig.mockReturnValue({
+        id: 1,
+        name: 'broken',
+        content: { command: { review: true } },
+        rawContent: '{"command":{"review":true}}',
+        isValid: true,
+        isDefault: false,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      mockPatchOpenCodeConfig.mockResolvedValueOnce({
+        success: false,
+        error: 'command.review: Invalid field',
+        details: [{ path: 'command.review', message: 'Invalid field' }],
+      })
+
+      const req = new Request('http://localhost/opencode-configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'broken',
+          content: '{"command":{"review":true}}',
+          isDefault: true,
+        }),
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(400)
+      expect(json.error).toBe('Config validation failed')
+      expect(mockSaveLastKnownGoodConfig).toHaveBeenCalledWith('default')
+      expect(mockCreateOpenCodeConfig).toHaveBeenCalledWith(
+        {
+          name: 'broken',
+          content: '{"command":{"review":true}}',
+          isDefault: false,
+        },
+        'default',
+        { suppressAutoDefault: true }
+      )
+      expect(mockDeleteOpenCodeConfig).toHaveBeenCalledWith('broken', 'default')
+      expect(mockSetDefaultOpenCodeConfig).not.toHaveBeenCalled()
+      expect(mockWriteFileContent).not.toHaveBeenCalled()
+    })
+
+    it('should persist sanitized content before marking a new config as default', async () => {
+      mockCreateOpenCodeConfig.mockReturnValue({
+        id: 1,
+        name: 'cleaned',
+        content: { command: { review: true }, theme: 'dark' },
+        rawContent: '{"command":{"review":true},"theme":"dark"}',
+        isValid: true,
+        isDefault: false,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      mockPatchOpenCodeConfig.mockResolvedValueOnce({
+        success: true,
+        appliedConfig: { theme: 'dark' },
+        removedFields: ['command.review'],
+        details: [{ path: 'command.review', message: 'Invalid field' }],
+      })
+      mockUpdateOpenCodeConfig.mockReturnValue({
+        id: 1,
+        name: 'cleaned',
+        content: { theme: 'dark' },
+        rawContent: '{\n  "theme": "dark"\n}',
+        isValid: true,
+        isDefault: true,
+        createdAt: 1,
+        updatedAt: 2,
+      })
+
+      const req = new Request('http://localhost/opencode-configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'cleaned',
+          content: '{"command":{"review":true},"theme":"dark"}',
+          isDefault: true,
+        }),
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(200)
+      expect(mockUpdateOpenCodeConfig).toHaveBeenCalledWith(
+        'cleaned',
+        {
+          content: '{\n  "theme": "dark"\n}',
+          isDefault: true,
+        },
+        'default'
+      )
+      expect(mockWriteFileContent).toHaveBeenCalledWith(
+        '/tmp/test-workspace/.config/opencode.json',
+        '{\n  "theme": "dark"\n}'
+      )
+      expect(json.removedFields).toEqual(['command.review'])
+    })
+
+    it('should reject set-default when runtime validation fails', async () => {
+      mockGetOpenCodeConfigByName.mockReturnValue({
+        id: 2,
+        name: 'broken',
+        content: { command: { review: true } },
+        rawContent: '{"command":{"review":true}}',
+        isValid: true,
+        isDefault: false,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      mockPatchOpenCodeConfig.mockResolvedValueOnce({
+        success: false,
+        error: 'command.review: Invalid field',
+        details: [{ path: 'command.review', message: 'Invalid field' }],
+      })
+
+      const req = new Request('http://localhost/opencode-configs/broken/set-default', {
+        method: 'POST',
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(400)
+      expect(json.error).toBe('Config validation failed')
+      expect(mockSetDefaultOpenCodeConfig).not.toHaveBeenCalled()
+      expect(mockWriteFileContent).not.toHaveBeenCalled()
+    })
+
+    it('should sanitize existing config content before switching the default flag', async () => {
+      mockGetOpenCodeConfigByName.mockReturnValue({
+        id: 2,
+        name: 'cleaned',
+        content: { command: { review: true }, theme: 'dark' },
+        rawContent: '{"command":{"review":true},"theme":"dark"}',
+        isValid: true,
+        isDefault: false,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      mockPatchOpenCodeConfig.mockResolvedValueOnce({
+        success: true,
+        appliedConfig: { theme: 'dark' },
+        removedFields: ['command.review'],
+        details: [{ path: 'command.review', message: 'Invalid field' }],
+      })
+      mockUpdateOpenCodeConfig.mockReturnValue({
+        id: 2,
+        name: 'cleaned',
+        content: { theme: 'dark' },
+        rawContent: '{\n  "theme": "dark"\n}',
+        isValid: true,
+        isDefault: false,
+        createdAt: 1,
+        updatedAt: 2,
+      })
+      mockSetDefaultOpenCodeConfig.mockReturnValue({
+        id: 2,
+        name: 'cleaned',
+        content: { theme: 'dark' },
+        rawContent: '{\n  "theme": "dark"\n}',
+        isValid: true,
+        isDefault: true,
+        createdAt: 1,
+        updatedAt: 3,
+      })
+
+      const req = new Request('http://localhost/opencode-configs/cleaned/set-default', {
+        method: 'POST',
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+      const updateCallOrder = mockUpdateOpenCodeConfig.mock.invocationCallOrder[0]
+      const setDefaultCallOrder = mockSetDefaultOpenCodeConfig.mock.invocationCallOrder[0]
+
+      expect(res.status).toBe(200)
+      expect(mockUpdateOpenCodeConfig).toHaveBeenCalledWith(
+        'cleaned',
+        { content: '{\n  "theme": "dark"\n}' },
+        'default'
+      )
+      expect(updateCallOrder).toBeDefined()
+      expect(setDefaultCallOrder).toBeDefined()
+      expect(updateCallOrder ?? 0).toBeLessThan(setDefaultCallOrder ?? 0)
+      expect(mockWriteFileContent).toHaveBeenCalledWith(
+        '/tmp/test-workspace/.config/opencode.json',
+        '{\n  "theme": "dark"\n}'
+      )
+      expect(json.removedFields).toEqual(['command.review'])
+    })
+  })
+
+  describe('OpenCode import routes', () => {
+    it('should return import status', async () => {
+      mockGetOpenCodeImportStatus.mockResolvedValueOnce({
+        configSourcePath: '/import/opencode-config/opencode.json',
+        stateSourcePath: '/import/opencode-state',
+        workspaceConfigPath: '/tmp/test-workspace/.config/opencode/opencode.json',
+        workspaceStatePath: '/tmp/test-workspace/.opencode/state/opencode',
+        workspaceStateExists: true,
+      })
+
+      const req = new Request('http://localhost/opencode-import/status')
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(200)
+      expect(json.configSourcePath).toBe('/import/opencode-config/opencode.json')
+      expect(json.stateSourcePath).toBe('/import/opencode-state')
+      expect(mockGetOpenCodeImportStatus).toHaveBeenCalled()
+    })
+
+    it('should import host OpenCode data and restart the server', async () => {
+      mockSyncOpenCodeImport.mockResolvedValueOnce({
+        configSourcePath: '/import/opencode-config/opencode.json',
+        stateSourcePath: '/import/opencode-state',
+        workspaceConfigPath: '/tmp/test-workspace/.config/opencode/opencode.json',
+        workspaceStatePath: '/tmp/test-workspace/.opencode/state/opencode',
+        workspaceStateExists: true,
+        configImported: true,
+        stateImported: true,
+      })
+
+      const req = new Request('http://localhost/opencode-import?userId=default', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ overwriteState: true }),
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(200)
+      expect(json.success).toBe(true)
+      expect(json.serverRestarted).toBe(true)
+      expect(mockSyncOpenCodeImport).toHaveBeenCalledWith({
+        db: testDb,
+        userId: 'default',
+        overwriteState: true,
+        protectExistingState: true,
+      })
+      expect(mockGetImportedSessionDirectories).toHaveBeenCalledWith('/tmp/test-workspace/.opencode/state/opencode')
+      expect(mockRelinkReposFromSessionDirectories).toHaveBeenCalled()
+      expect(mockClearStartupError).toHaveBeenCalled()
+      expect(mockRestart).toHaveBeenCalled()
+    })
+
+    it('should return 404 when no importable host data exists', async () => {
+      mockSyncOpenCodeImport.mockResolvedValueOnce({
+        configSourcePath: null,
+        stateSourcePath: null,
+        workspaceConfigPath: '/tmp/test-workspace/.config/opencode/opencode.json',
+        workspaceStatePath: '/tmp/test-workspace/.opencode/state/opencode',
+        workspaceStateExists: true,
+        configImported: false,
+        stateImported: false,
+      })
+
+      const req = new Request('http://localhost/opencode-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ overwriteState: true }),
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(404)
+      expect(json.error).toBe('No importable OpenCode host data found')
+      expect(mockRestart).not.toHaveBeenCalled()
+    })
+
+    it('should return 409 when import is blocked to protect workspace state', async () => {
+      mockSyncOpenCodeImport.mockRejectedValueOnce(
+        new OpenCodeImportProtectionError('Workspace state already exists and must be cleared before import')
+      )
+
+      const req = new Request('http://localhost/opencode-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(409)
+      expect(json.error).toBe('OpenCode host import was blocked to protect existing workspace state')
+      expect(json.code).toBe('OPENCODE_IMPORT_PROTECTED')
+      expect(json.detail).toBe('Workspace state already exists and must be cleared before import')
+      expect(mockRestart).not.toHaveBeenCalled()
+    })
+
+    it('should not call relink functions when only config is imported (stateImported: false)', async () => {
+      mockSyncOpenCodeImport.mockResolvedValueOnce({
+        configSourcePath: '/import/opencode-config/opencode.json',
+        stateSourcePath: '/import/opencode-state',
+        workspaceConfigPath: '/tmp/test-workspace/.config/opencode/opencode.json',
+        workspaceStatePath: '/tmp/test-workspace/.opencode/state/opencode',
+        workspaceStateExists: false,
+        configImported: true,
+        stateImported: false,
+      })
+
+      const req = new Request('http://localhost/opencode-import?userId=default', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ overwriteState: true }),
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(200)
+      expect(json.success).toBe(true)
+      expect(json.serverRestarted).toBe(true)
+      expect(json.configImported).toBe(true)
+      expect(json.stateImported).toBe(false)
+      expect(mockGetImportedSessionDirectories).not.toHaveBeenCalled()
+      expect(mockRelinkReposFromSessionDirectories).not.toHaveBeenCalled()
+      expect(mockClearStartupError).toHaveBeenCalled()
+      expect(mockRestart).toHaveBeenCalled()
+      expect(json.relinkedRepos).toEqual({
+        repos: [],
+        relinkedCount: 0,
+        existingCount: 0,
+        nonRepoPathCount: 0,
+        duplicatePathCount: 0,
+        errors: [],
+      })
+    })
   })
 
   describe('POST /opencode-upgrade', () => {
@@ -505,6 +933,88 @@ describe('Settings Routes - OpenCode Upgrade', () => {
       expect(mockClearStartupError).toHaveBeenCalled()
       expect(mockRestart).toHaveBeenCalled()
       expect(json.recovered).toBe(true)
+    })
+  })
+
+  describe('POST /opencode-reload', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+      mockReloadConfig.mockReset()
+      mockRestart.mockReset()
+      mockClearStartupError.mockReset()
+      mockReloadConfig.mockResolvedValue(undefined)
+      mockRestart.mockResolvedValue(undefined)
+      mockClearStartupError.mockReturnValue(undefined)
+    })
+
+    it('should return success when reload succeeds', async () => {
+      mockReloadConfig.mockResolvedValueOnce(undefined)
+
+      const req = new Request('http://localhost/opencode-reload', {
+        method: 'POST'
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(200)
+      expect(json.success).toBe(true)
+      expect(json.message).toBe('OpenCode configuration reloaded successfully')
+    })
+
+    it('should propagate validationIssues and removedFields when ConfigReloadError is thrown', async () => {
+      const validationIssues = [
+        { path: 'command.review', message: 'Invalid field' },
+        { path: 'agent.temperature', message: 'Temperature out of range' }
+      ]
+      const removedFields = ['command.review']
+
+      mockReloadConfig.mockRejectedValueOnce(
+        new ConfigReloadError('Config validation failed', validationIssues, removedFields)
+      )
+
+      const req = new Request('http://localhost/opencode-reload', {
+        method: 'POST'
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(500)
+      expect(json.error).toBe('Config validation failed')
+      expect(json.details).toBe('command.review: Invalid field; agent.temperature: Temperature out of range')
+      expect(json.validationIssues).toEqual(validationIssues)
+      expect(json.removedFields).toEqual(removedFields)
+    })
+
+    it('should return generic error when non-ConfigReloadError is thrown', async () => {
+      mockReloadConfig.mockRejectedValueOnce(new Error('Some other error'))
+
+      const req = new Request('http://localhost/opencode-reload', {
+        method: 'POST'
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(500)
+      expect(json.error).toBe('Failed to reload OpenCode configuration')
+      expect(json.details).toBe('Some other error')
+    })
+
+    it('should propagate empty arrays when ConfigReloadError has no issues', async () => {
+      mockReloadConfig.mockRejectedValueOnce(
+        new ConfigReloadError('Reload failed', [], [])
+      )
+
+      const req = new Request('http://localhost/opencode-reload', {
+        method: 'POST'
+      })
+      const res = await settingsApp.fetch(req)
+      const json = await res.json() as Record<string, unknown>
+
+      expect(res.status).toBe(500)
+      expect(json.error).toBe('Reload failed')
+      expect(json.details).toBe('Reload failed')
+      expect(json.validationIssues).toEqual([])
+      expect(json.removedFields).toEqual([])
     })
   })
 })

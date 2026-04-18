@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
 import { useState, useEffect } from "react";
 import { useMobile } from "@/hooks/useMobile";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { usePermissions, useQuestions } from "@/contexts/EventContext";
 
 interface HeaderProps {
@@ -62,11 +62,10 @@ interface HeaderEditableTitleProps {
   value: string;
   onChange: (value: string) => void;
   subtitle?: React.ReactNode;
-  generating?: boolean;
   className?: string;
 }
 
-function HeaderEditableTitle({ value, onChange, subtitle, generating, className }: HeaderEditableTitleProps) {
+function HeaderEditableTitle({ value, onChange, subtitle, className }: HeaderEditableTitleProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(value);
   const isMobile = useMobile();
@@ -143,19 +142,12 @@ function HeaderEditableTitle({ value, onChange, subtitle, generating, className 
         </form>
       ) : (
         <div className="min-w-0">
-          {generating ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-              <span className="text-xs sm:text-base text-muted-foreground italic">Generating title...</span>
-            </div>
-          ) : (
-            <h1 
-              className="text-xs sm:text-base font-semibold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent truncate cursor-pointer hover:opacity-80 transition-opacity"
-              onClick={handleTitleClick}
-            >
-              {value}
-            </h1>
-          )}
+          <h1 
+            className="text-xs sm:text-base font-semibold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent truncate cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={handleTitleClick}
+          >
+            {value}
+          </h1>
           {subtitle && (
             <p className="text-[10px] sm:text-xs text-muted-foreground truncate">
               {typeof subtitle === 'string' ? subtitle : subtitle}
@@ -171,7 +163,13 @@ function HeaderActions({ children, className }: { children: ReactNode; className
   return <div className={cn("flex items-center gap-2", className)}>{children}</div>;
 }
 
-function HeaderMobileDropdown({ children, className }: { children: ReactNode; className?: string }) {
+interface HeaderMobileDropdownProps {
+  children?: ReactNode
+  className?: string
+  hideSettings?: boolean
+}
+
+function HeaderMobileDropdown({ children, className, hideSettings = false }: HeaderMobileDropdownProps) {
   const isMobile = useMobile();
   const { pendingCount: permissionCount, setShowDialog, navigateToCurrent: navigateToPermission } = usePermissions();
   const { pendingCount: questionCount, navigateToCurrent } = useQuestions();
@@ -216,10 +214,12 @@ function HeaderMobileDropdown({ children, className }: { children: ReactNode; cl
         {totalPending > 0 && children && <DropdownMenuSeparator />}
         {children}
         {children && <DropdownMenuSeparator />}
-        <DropdownMenuItem onClick={open} className="gap-2 bg-muted">
-          <Settings className="w-4 h-4" />
-          <span>Settings</span>
-        </DropdownMenuItem>
+        {!hideSettings && (
+          <DropdownMenuItem onClick={open} className="gap-2 bg-muted">
+            <Settings className="w-4 h-4" />
+            <span>Settings</span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

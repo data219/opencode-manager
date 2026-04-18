@@ -14,6 +14,7 @@ import { AgentsEditor } from './AgentsEditor'
 import { AgentsMdEditor } from './AgentsMdEditor'
 import { McpManager } from './McpManager'
 import { SkillsEditor } from './SkillsEditor'
+import { OpenCodeModelsEditor, type ConfigProvider } from './OpenCodeModelsEditor'
 import { VersionSelectDialog } from './VersionSelectDialog'
 import { MemoryPluginConfig } from './MemoryPluginConfig'
 import { settingsApi } from '@/api/settings'
@@ -22,7 +23,8 @@ import { useServerHealth } from '@/hooks/useServerHealth'
 import { parseJsonc, hasJsoncComments } from '@/lib/jsonc'
 import { showToast } from '@/lib/toast'
 import { invalidateConfigCaches } from '@/lib/queryInvalidation'
-import type { OpenCodeConfig } from '@/api/types/settings'
+import { FetchError } from '@/api/fetchWrapper'
+import type { OpenCodeConfig, OpenCodeImportStatus } from '@/api/types/settings'
 
 interface Command {
   template: string
@@ -65,6 +67,7 @@ export function OpenCodeConfigManager() {
     agents: false,
     skills: false,
     mcp: false,
+    models: false,
   })
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -76,11 +79,18 @@ export function OpenCodeConfigManager() {
   const agentsRef = useRef<HTMLButtonElement>(null)
   const skillsRef = useRef<HTMLButtonElement>(null)
   const mcpRef = useRef<HTMLButtonElement>(null)
+  const modelsRef = useRef<HTMLButtonElement>(null)
   
   const { data: managedSkills = [] } = useQuery({
     queryKey: ['managed-skills'],
     queryFn: () => settingsApi.listManagedSkills(),
     staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: importStatus, isLoading: isImportStatusLoading } = useQuery<OpenCodeImportStatus>({
+    queryKey: ['opencode-import-status'],
+    queryFn: () => settingsApi.getOpenCodeImportStatus(),
+    staleTime: 30 * 1000,
   })
 
   const scrollToSection = (ref: React.RefObject<HTMLButtonElement | null>) => {
@@ -152,16 +162,66 @@ export function OpenCodeConfigManager() {
     },
   })
 
+  const syncOpenCodeImportMutation = useMutation({
+    mutationFn: async () => settingsApi.syncOpenCodeImport(),
+    onSuccess: async () => {
+      await fetchConfigs()
+      invalidateConfigCaches(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['opencode-import-status'] })
+    },
+  })
+
   const getApiErrorMessage = (error: unknown, fallback: string): string => {
+    if (error instanceof FetchError) {
+      let message = error.detail || error.message || fallback
+
+      if (error.validationIssues && error.validationIssues.length > 0) {
+        const issues = error.validationIssues
+          .map((issue) => `${issue.path}: ${issue.message}`)
+          .join('; ')
+        message = `Validation failed: ${issues}`
+      }
+
+      if (error.removedFields && error.removedFields.length > 0) {
+        message += ` (removed invalid fields: ${error.removedFields.join(', ')})`
+      }
+
+      return message
+    }
+
     if (error && typeof error === 'object' && 'response' in error) {
-      const response = (error as { response?: { data?: { details?: string; error?: string } } }).response
-      return response?.data?.details || response?.data?.error || fallback
+      const response = (error as { response?: { data?: { details?: string; error?: string; validationIssues?: Array<{ path: string; message: string }>; removedFields?: string[] } } }).response
+      const data = response?.data
+      
+      let message = data?.details || data?.error || fallback
+      
+      if (data?.validationIssues && data.validationIssues.length > 0) {
+        const issues = data.validationIssues
+          .map((issue) => `${issue.path}: ${issue.message}`)
+          .join('; ')
+        message = `Validation failed: ${issues}`
+      }
+      
+      if (data?.removedFields && data.removedFields.length > 0) {
+        const removed = data.removedFields.join(', ')
+        message += ` (removed invalid fields: ${removed})`
+      }
+      
+      return message
     }
     return fallback
   }
 
   const getRestartErrorMessage = (error: unknown): string => {
     return getApiErrorMessage(error, 'Failed to restart OpenCode server')
+  }
+
+  const getOpenCodeImportErrorMessage = (error: unknown): string => {
+    if (error instanceof FetchError && error.code === 'OPENCODE_IMPORT_PROTECTED') {
+      return error.detail || error.message
+    }
+
+    return getApiErrorMessage(error, 'Failed to import existing OpenCode host data')
   }
 
   const fetchConfigs = async () => {
@@ -181,7 +241,7 @@ export function OpenCodeConfigManager() {
       setIsUpdating(true)
       const previousContent = configs.find(c => c.name === configName)?.content
 
-      await settingsApi.updateOpenCodeConfig(configName, { content: newContent })
+      const result = await settingsApi.updateOpenCodeConfig(configName, { content: newContent })
 
       setConfigs(prev => prev.map(config =>
         config.name === configName
@@ -196,17 +256,26 @@ export function OpenCodeConfigManager() {
       const agentsChanged = JSON.stringify(previousContent?.agent) !== JSON.stringify(newContent.agent)
       const pluginsChanged = JSON.stringify(previousContent?.plugin) !== JSON.stringify(newContent.plugin)
       const skillsChanged = JSON.stringify(previousContent?.skills) !== JSON.stringify(newContent.skills)
-      if (restartServer || agentsChanged || pluginsChanged || skillsChanged) {
+      const providersChanged = JSON.stringify(previousContent?.provider) !== JSON.stringify(newContent.provider)
+      if (restartServer || agentsChanged || pluginsChanged || skillsChanged || providersChanged) {
         showToast.loading('Reloading server...', { id: 'update-restart' })
         try {
           await reloadConfigMutation.mutateAsync()
-          showToast.success('Configuration updated and server reloaded', { id: 'update-restart' })
+          if (result.removedFields && result.removedFields.length > 0) {
+            showToast.info(`Configuration updated after removing invalid fields: ${result.removedFields.join(', ')}`, { id: 'update-restart' })
+          } else {
+            showToast.success('Configuration updated and server reloaded', { id: 'update-restart' })
+          }
         } catch (error) {
           showToast.error(getRestartErrorMessage(error), { id: 'update-restart' })
           throw error
         }
       } else {
-        showToast.success('Configuration updated')
+        if (result.removedFields && result.removedFields.length > 0) {
+          showToast.info(`Configuration applied after removing invalid fields: ${result.removedFields.join(', ')}`, { id: 'update-restart' })
+        } else {
+          showToast.success('Configuration updated')
+        }
         invalidateConfigCaches(queryClient)
       }
     } catch (error) {
@@ -240,7 +309,7 @@ export function OpenCodeConfigManager() {
         throw new Error(`Invalid fields found: ${foundForbidden.join(', ')}. These fields are managed automatically.`)
       }
 
-      await settingsApi.createOpenCodeConfig({
+      const result = await settingsApi.createOpenCodeConfig({
         name: name.trim(),
         content: rawContent,
         isDefault,
@@ -250,13 +319,10 @@ export function OpenCodeConfigManager() {
       await fetchConfigs()
 
       if (isDefault) {
-        showToast.loading('Reloading server...', { id: 'create-config' })
-        try {
-          await reloadConfigMutation.mutateAsync()
-          showToast.success('Configuration created and server reloaded', { id: 'create-config' })
-        } catch (error) {
-          showToast.error(getRestartErrorMessage(error), { id: 'create-config' })
-          throw error
+        if (result.removedFields && result.removedFields.length > 0) {
+          showToast.info(`Configuration created after removing invalid fields: ${result.removedFields.join(', ')}`, { id: 'create-config' })
+        } else {
+          showToast.success('Configuration created and applied', { id: 'create-config' })
         }
       } else {
         showToast.success('Configuration created', { id: 'create-config' })
@@ -292,13 +358,16 @@ export function OpenCodeConfigManager() {
   }
 
   const setDefaultConfig = async (config: OpenCodeConfig) => {
-    showToast.loading('Setting default config and reloading server...', { id: 'set-default' })
+    showToast.loading('Setting default config...', { id: 'set-default' })
     try {
       setIsUpdating(true)
-      await settingsApi.setDefaultOpenCodeConfig(config.name)
+      const result = await settingsApi.setDefaultOpenCodeConfig(config.name)
       await fetchConfigs()
-      await reloadConfigMutation.mutateAsync()
-      showToast.success('Default config updated and server reloaded', { id: 'set-default' })
+      if (result.removedFields && result.removedFields.length > 0) {
+        showToast.info(`Default config updated after removing invalid fields: ${result.removedFields.join(', ')}`, { id: 'set-default' })
+      } else {
+        showToast.success('Default config updated and applied', { id: 'set-default' })
+      }
     } catch (error) {
       console.error('Failed to set default config:', error)
       showToast.error(getApiErrorMessage(error, 'Failed to set default config'), { id: 'set-default' })
@@ -337,6 +406,7 @@ export function OpenCodeConfigManager() {
   }
 
   const isUnhealthy = health?.opencode !== 'healthy'
+  const canImportFromHost = Boolean(importStatus?.configSourcePath || importStatus?.stateSourcePath)
 
   return (
     <div className="space-y-6 overflow-y-auto">
@@ -433,13 +503,109 @@ export function OpenCodeConfigManager() {
         </Card>
        )}
 
+       <Card>
+         <CardHeader className="pb-3">
+           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                      <CardTitle className="text-sm sm:text-base">Existing OpenCode Host Import</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Import your standalone OpenCode config and session state into this workspace, then restart the server so existing chats can reconnect.
+                </p>
+              </div>
+             <Button
+               variant="outline"
+               size="sm"
+               disabled={!canImportFromHost || syncOpenCodeImportMutation.isPending || isImportStatusLoading}
+                onClick={async () => {
+                  showToast.loading('Importing existing OpenCode host data...', { id: 'opencode-import' })
+                  try {
+                    const result = await syncOpenCodeImportMutation.mutateAsync()
+                    const importedParts = [result.configImported && 'config', result.stateImported && 'state']
+                      .filter(Boolean)
+                      .join(' and ')
+                    const relinkSummary = result.relinkedRepos
+                      ? ` Linked ${result.relinkedRepos.relinkedCount} repos, matched ${result.relinkedRepos.existingCount} existing repos, skipped ${result.relinkedRepos.nonRepoPathCount} non-repo paths, and ignored ${result.relinkedRepos.duplicatePathCount} duplicate session paths.`
+                      : ''
+                    showToast.success(`Imported existing OpenCode ${importedParts || 'data'} and restarted the server.${relinkSummary}`, { id: 'opencode-import' })
+                  } catch (error) {
+                    showToast.error(getOpenCodeImportErrorMessage(error), { id: 'opencode-import' })
+                  }
+                }}
+              >
+                {syncOpenCodeImportMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 animate-spin" />
+                ) : (
+                  <Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                )}
+                <span className="text-xs sm:text-sm">Import From Host</span>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-lg border border-border p-3">
+                <p className="font-medium">Config Source</p>
+                <p className="mt-1 break-all text-muted-foreground">
+                  {isImportStatusLoading ? 'Checking...' : importStatus?.configSourcePath || 'No importable OpenCode config found'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="font-medium">State Source</p>
+                <p className="mt-1 break-all text-muted-foreground">
+                  {isImportStatusLoading ? 'Checking...' : importStatus?.stateSourcePath || 'No importable OpenCode state found'}
+                </p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="font-medium">Workspace State</p>
+              <p className="mt-1 break-all text-muted-foreground">
+                {importStatus?.workspaceStatePath || 'Unavailable'}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {importStatus?.workspaceStateExists
+                  ? 'A workspace session database already exists. Import is blocked to protect it from being replaced by detected host state.'
+                  : 'No workspace session database exists yet. Import will seed it from the detected host state.'}
+              </p>
+            </div>
+            {syncOpenCodeImportMutation.error && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                <p className="font-medium text-destructive">Import blocked</p>
+                <p className="mt-1 text-sm text-destructive/90">
+                  {getOpenCodeImportErrorMessage(syncOpenCodeImportMutation.error)}
+                </p>
+                <p className="mt-2 text-xs text-destructive/80">
+                  This workspace already has OpenCode session state, so host state import was stopped to prevent accidental replacement of existing chats and history. If you want to use host state instead, clear the workspace state first and then run the import again.
+                </p>
+              </div>
+            )}
+            {syncOpenCodeImportMutation.data?.relinkedRepos && (
+              <div className="rounded-lg border border-border p-3">
+                <p className="font-medium">Last Relink Result</p>
+                <p className="mt-1 text-muted-foreground">
+                  Linked {syncOpenCodeImportMutation.data.relinkedRepos.relinkedCount} repos, matched {syncOpenCodeImportMutation.data.relinkedRepos.existingCount} existing repos, skipped {syncOpenCodeImportMutation.data.relinkedRepos.nonRepoPathCount} non-repo session paths, and ignored {syncOpenCodeImportMutation.data.relinkedRepos.duplicatePathCount} duplicate session paths.
+                </p>
+                {syncOpenCodeImportMutation.data.relinkedRepos.errors.length > 0 && (
+                  <p className="mt-2 text-xs text-destructive">
+                    {syncOpenCodeImportMutation.data.relinkedRepos.errors.length} repo paths could not be linked.
+                  </p>
+                )}
+              </div>
+            )}
+            {!canImportFromHost && !isImportStatusLoading && (
+              <p className="text-xs text-muted-foreground">
+                No host OpenCode config or state was detected. For Docker installs, bind your host OpenCode config and state into the container before using this action.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         <MemoryPluginConfig 
-           memoryPluginEnabled={configs.find(c => c.isDefault)?.content?.plugin?.includes('@opencode-manager/memory') ?? false}
+           memoryPluginEnabled={((configs.find(c => c.isDefault)?.content?.plugin as string[] | undefined) ?? []).includes('@opencode-manager/memory')}
            onToggle={async (enabled) => {
-             const defaultConfig = configs.find(c => c.isDefault)
-             if (!defaultConfig) return
-             
-             const currentPlugins = defaultConfig.content?.plugin ?? []
+              const defaultConfig = configs.find(c => c.isDefault)
+              if (!defaultConfig) return
+              
+              const currentPlugins = (defaultConfig.content?.plugin as string[] | undefined) ?? []
              const memoryPlugin = '@opencode-manager/memory'
              const newPlugins = enabled
                ? currentPlugins.includes(memoryPlugin)
@@ -488,6 +654,11 @@ export function OpenCodeConfigManager() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 flex-wrap">
                       <CardTitle className="text-sm sm:text-base">{config.name}</CardTitle>
+                      {!config.isValid && (
+                        <Badge variant="destructive">
+                          Invalid Config
+                        </Badge>
+                      )}
                       {config.isDefault && (
                         <Badge variant="default" className="text-green-500 bg-green-500/10">
                           Current
@@ -613,7 +784,7 @@ export function OpenCodeConfigManager() {
                   <SelectContent>
                     {configs.map(config => (
                       <SelectItem key={config.id} value={config.name}>
-                        {config.name} {config.isDefault && '(Default)'}
+                        {config.name} {config.isDefault && '(Default)'} {!config.isValid && '(Invalid)'}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -623,6 +794,26 @@ export function OpenCodeConfigManager() {
               <div className="flex flex-col gap-4 pb-20 min-w-0">
                 {selectedConfig ? (
                   <>
+                    {!selectedConfig.isValid && selectedConfig.validationIssues && selectedConfig.validationIssues.length > 0 && (
+                      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+                        <p className="font-medium text-destructive">This configuration has validation issues</p>
+                        <p className="mt-1 text-sm text-destructive/90">
+                          OpenCode may fail to start until these fields are corrected. Open the config editor to fix the file directly.
+                        </p>
+                        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-destructive/90">
+                          {selectedConfig.validationIssues.slice(0, 8).map((issue) => (
+                            <li key={`${issue.path}-${issue.message}`}>
+                              <span className="font-mono text-xs">{issue.path}</span>: {issue.message}
+                            </li>
+                          ))}
+                        </ul>
+                        {selectedConfig.validationIssues.length > 8 && (
+                          <p className="mt-2 text-xs text-destructive/80">
+                            Showing 8 of {selectedConfig.validationIssues.length} issues. Open the config editor to review and fix the file.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <div className="bg-card border border-border rounded-lg overflow-hidden min-w-0">
                       <button
                         ref={commandsRef}
@@ -712,7 +903,7 @@ export function OpenCodeConfigManager() {
                         <div className="flex items-center gap-3 min-w-0">
                           <h4 className="text-sm font-medium truncate">Skills</h4>
                           <span className="text-xs text-muted-foreground">
-                            {managedSkills.length + (selectedConfig.content?.skills?.paths?.length ?? 0) + (selectedConfig.content?.skills?.urls?.length ?? 0)} configured
+                            {managedSkills.length + (((selectedConfig.content?.skills as { paths?: string[]; urls?: string[] } | undefined)?.paths?.length) ?? 0) + (((selectedConfig.content?.skills as { paths?: string[]; urls?: string[] } | undefined)?.urls?.length) ?? 0)} configured
                           </span>
                         </div>
                         <ChevronDown className={`h-4 w-4 transition-transform ${expandedSections.skills ? 'rotate-90' : ''}`} />
@@ -720,7 +911,7 @@ export function OpenCodeConfigManager() {
                         <div className={`${expandedSections.skills ? 'block' : 'hidden'} border-t border-border`}>
                           <div className="p-4 max-h-[50vh] overflow-y-auto">
                             <SkillsEditor
-                              skills={selectedConfig.content?.skills}
+                              skills={selectedConfig.content?.skills as { paths?: string[]; urls?: string[] } | undefined}
                               managedSkills={managedSkills}
                               onChange={(skills) => {
                                 const paths = skills?.paths?.filter(Boolean)
@@ -763,6 +954,50 @@ export function OpenCodeConfigManager() {
                             config={selectedConfig}
                             onUpdate={(content) => updateConfigContent(selectedConfig.name, content)}
                             onConfigUpdate={updateConfigContent}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-card border border-border rounded-lg overflow-hidden min-w-0">
+                      <button
+                        ref={modelsRef}
+                        className={cn("w-full px-4 py-3 flex items-center justify-between transition-colors min-w-0", expandedSections.models ? "bg-muted/40 hover:bg-muted/50" : "hover:bg-muted/50")}
+                        onClick={() => {
+                          const isExpanding = !expandedSections.models
+                          setExpandedSections(prev => ({ ...prev, models: isExpanding }))
+                          
+                          if (isExpanding) {
+                            setTimeout(() => scrollToSection(modelsRef), 100)
+                          }
+                        }}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <h4 className="text-sm font-medium truncate">Models</h4>
+                          <span className="text-xs text-muted-foreground">
+                            {(() => {
+                              const provider = selectedConfig.content?.provider as Record<string, unknown> | undefined
+                              if (!provider) return 0
+                              return Object.values(provider).reduce<number>((acc, p) => {
+                                const models = (p as { models?: Record<string, unknown> })?.models
+                                return acc + (models ? Object.keys(models).length : 0)
+                              }, 0)
+                            })()} configured
+                          </span>
+                        </div>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${expandedSections.models ? 'rotate-90' : ''}`} />
+                      </button>
+                      <div className={`${expandedSections.models ? 'block' : 'hidden'} border-t border-border`}>
+                        <div className="p-4 max-h-[50vh] overflow-y-auto">
+                          <OpenCodeModelsEditor
+                            providers={(selectedConfig.content?.provider as Record<string, ConfigProvider> | undefined) ?? {}}
+                            onChange={(providers) => {
+                              const updatedContent = {
+                                ...selectedConfig.content,
+                                provider: providers
+                              }
+                              updateConfigContent(selectedConfig.name, updatedContent)
+                            }}
                           />
                         </div>
                       </div>

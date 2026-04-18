@@ -46,13 +46,19 @@ vi.mock('child_process', () => ({
   execSync: vi.fn(),
 }))
 
+vi.mock('../../src/services/proxy', () => ({
+  patchOpenCodeConfig: vi.fn(),
+}))
+
 import { promises as fs } from 'fs'
 import { execSync } from 'child_process'
+import { ConfigReloadError } from '../../src/services/opencode-single-server'
 
 vi.mock('../../src/utils/logger', () => ({
   logger: {
     info: vi.fn(),
     error: vi.fn(),
+    warn: vi.fn(),
   },
 }))
 
@@ -208,5 +214,54 @@ describe('OpenCodeServerManager - reinitializeBinDirectory', () => {
         expect.any(Error)
       )
     })
+  })
+})
+
+describe('ConfigReloadError', () => {
+  it('should create error with validation issues and removed fields', () => {
+    const issues = [{ path: 'command.review', message: 'Invalid' }]
+    const removed = ['command.review']
+    const error = new ConfigReloadError('Test error', issues, removed)
+
+    expect(error.name).toBe('ConfigReloadError')
+    expect(error.message).toBe('Test error')
+    expect(error.validationIssues).toEqual(issues)
+    expect(error.removedFields).toEqual(removed)
+  })
+
+  it('should default to empty arrays for issues and removed fields', () => {
+    const error = new ConfigReloadError('Test error')
+
+    expect(error.validationIssues).toEqual([])
+    expect(error.removedFields).toEqual([])
+  })
+})
+
+describe('OpenCodeServerManager - reloadConfig', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should read config from file before patching', async () => {
+    const mockReadFile = vi.fn().mockResolvedValue(JSON.stringify({ command: { review: 'test' } }))
+    fs.readFile = mockReadFile
+
+    const { patchOpenCodeConfig } = await import('../../src/services/proxy')
+    const mockPatchResult = { success: true }
+    vi.mocked(patchOpenCodeConfig).mockResolvedValue(mockPatchResult)
+
+    const { opencodeServerManager } = await import('../../src/services/opencode-single-server')
+
+    await opencodeServerManager.reloadConfig()
+
+    expect(mockReadFile).toHaveBeenCalledWith(
+      expect.stringContaining('.config/opencode.json'),
+      'utf-8'
+    )
+    expect(patchOpenCodeConfig).toHaveBeenCalled()
   })
 })

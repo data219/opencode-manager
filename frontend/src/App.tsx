@@ -15,12 +15,15 @@ import { Setup } from './pages/Setup'
 import { SettingsDialog } from './components/settings/SettingsDialog'
 import { VersionNotifier } from './components/VersionNotifier'
 import { PwaUpdatePrompt } from '@/components/PwaUpdatePrompt'
+import { MobileTabBar } from '@/components/navigation/MobileTabBar'
 import { useTheme } from './hooks/useTheme'
 import { TTSProvider } from './contexts/TTSContext'
 import { AuthProvider } from './contexts/AuthContext'
 import { EventProvider, usePermissions, useEventContext } from '@/contexts/EventContext'
 import { PermissionRequestDialog } from './components/session/PermissionRequestDialog'
 import { SSHHostKeyDialog } from './components/ssh/SSHHostKeyDialog'
+import { PageTransition } from './components/ui/PageTransition'
+import { useNavigationDirection } from './hooks/useNavigationDirection'
 import { loginLoader, setupLoader, registerLoader, protectedLoader } from './lib/auth-loaders'
 
 const queryClient = new QueryClient({
@@ -69,6 +72,7 @@ function PermissionDialogWrapper() {
 function AppShell() {
   const navigate = useNavigate()
   useTheme()
+  useNavigationDirection()
 
   useEffect(() => {
     const channel = new BroadcastChannel('notification-click')
@@ -84,7 +88,10 @@ function AppShell() {
   return (
     <AuthProvider>
       <EventProvider>
-        <Outlet />
+        <PageTransition>
+          <Outlet />
+        </PageTransition>
+        <MobileTabBar />
         <PermissionDialogWrapper />
         <SSHHostKeyDialogWrapper />
         <SettingsDialog />

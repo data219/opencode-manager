@@ -15,7 +15,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ContextUsageIndicator } from "@/components/session/ContextUsageIndicator";
-import { useSession, useAbortSession, useUpdateSession, useMessages, useTitleGenerating, useCreateSession } from "@/hooks/useOpenCode";
+import { useSession, useAbortSession, useUpdateSession, useMessages, useCreateSession } from "@/hooks/useOpenCode";
+import { useRepoActivity } from "@/hooks/useRepoActivity";
 import { OPENCODE_API_ENDPOINT } from "@/config";
 import { useSSE } from "@/hooks/useSSE";
 import { useUIState } from "@/stores/uiStateStore";
@@ -24,9 +25,10 @@ import { useModelSelection } from "@/hooks/useModelSelection";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useSettingsDialog } from "@/hooks/useSettingsDialog";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
-import { useSwipeBack, useMobile } from "@/hooks/useMobile";
+import { useMobile } from "@/hooks/useMobile";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 import { useTTS } from "@/hooks/useTTS";
+import { useAutoPlayLastResponse } from "@/hooks/useAutoPlayLastResponse";
 import { useEffect, useRef, useCallback, useMemo } from "react";
 import { MessageSkeleton } from "@/components/message/MessageSkeleton";
 import { exportSession, downloadMarkdown } from "@/lib/exportSession";
@@ -62,7 +64,6 @@ export function SessionDetail() {
   const { preferences, updateSettings } = useSettings();
   const { open: openSettings } = useSettingsDialog();
   const messageContainerRef = useRef<HTMLDivElement>(null);
-  const pageRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<PromptInputHandle>(null);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [sessionsDialogOpen, setSessionsDialogOpen] = useState(false);
@@ -76,24 +77,12 @@ export function SessionDetail() {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [hasPromptContent, setHasPromptContent] = useState(false);
   const [minimizedQuestion, setMinimizedQuestion] = useState<QuestionRequest | null>(null);
-  
-  const handleSwipeBack = useCallback(() => {
-    navigate(`/repos/${repoId}`);
-  }, [navigate, repoId]);
-  
-  const { bind: bindSwipe, swipeStyles } = useSwipeBack(handleSwipeBack, {
-    enabled: !fileBrowserOpen && !modelDialogOpen && !sessionsDialogOpen,
-  });
 
   const isMobile = useMobile();
   const { keyboardHeight } = useVisualViewport();
   const inputBottomOffset = isMobile ? keyboardHeight : 0;
   const promptOverlayRef = useRef<HTMLDivElement>(null);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(112);
-
-  useEffect(() => {
-    return bindSwipe(pageRef.current);
-  }, [bindSwipe]);
 
   useEffect(() => {
     const el = promptOverlayRef.current;
@@ -117,6 +106,8 @@ export function SessionDetail() {
     queryFn: () => getRepo(repoId),
     enabled: !!repoId,
   });
+
+  useRepoActivity(repoId, Boolean(repo));
 
   const opcodeUrl = OPENCODE_API_ENDPOINT;
   
@@ -152,7 +143,6 @@ export function SessionDetail() {
   const abortSession = useAbortSession(opcodeUrl, repoDirectory, sessionId);
   const updateSession = useUpdateSession(opcodeUrl, repoDirectory);
   const createSession = useCreateSession(opcodeUrl, repoDirectory);
-  const isTitleGenerating = useTitleGenerating(sessionId);
   const { model, modelString } = useModelSelection(opcodeUrl, repoDirectory);
   const isEditingMessage = useUIState((state) => state.isEditingMessage);
   const { isEnabled: ttsEnabled } = useTTS();
@@ -165,6 +155,13 @@ export function SessionDetail() {
   const lastAssistantText = (lastAssistantMessage?.parts ?? []).filter(p => p.type === 'text').map(p => p.text).join('\n\n') || '';
   const hasIncompleteMessages = lastAssistantMessage ? !('completed' in lastAssistantMessage.info.time && lastAssistantMessage.info.time.completed) : false;
   const hasActiveStream = hasIncompleteMessages && isSessionActive;
+
+  useAutoPlayLastResponse({
+    sessionId: sessionId ?? '',
+    lastAssistantMessage,
+    lastAssistantText,
+    hasActiveStream,
+  });
 
   const handleShowModelsDialog = useCallback(() => setModelDialogOpen(true), []);
   const handleShowSessionsDialog = useCallback(() => setSessionsDialogOpen(true), []);
@@ -367,9 +364,7 @@ export function SessionDetail() {
 
   return (
     <div
-      ref={pageRef}
       className="h-dvh max-h-dvh overflow-hidden bg-gradient-to-br from-background via-background to-background flex flex-col"
-      style={swipeStyles}
     >
       <Header>
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
@@ -392,12 +387,11 @@ export function SessionDetail() {
           ) : (
             <Header.BackButton to={`/repos/${repoId}`} className="text-xs sm:text-sm" />
           )}
-          <Header.EditableTitle
-            value={session?.title || "Untitled Session"}
-            onChange={handleSessionTitleUpdate}
-            subtitle={<span className="text-orange-600 dark:text-orange-400">{getRepoDisplayName(repo.repoUrl, repo.localPath, repo.sourcePath)}</span>}
-            generating={isTitleGenerating}
-          />
+            <Header.EditableTitle
+              value={session?.title || "Untitled Session"}
+              onChange={handleSessionTitleUpdate}
+              subtitle={<span className="text-orange-600 dark:text-orange-400">{getRepoDisplayName(repo.repoUrl, repo.localPath, repo.sourcePath)}</span>}
+            />
         </div>
         <Header.Actions className="gap-2 sm:gap-4">
           <div className="hidden sm:flex items-center gap-1">
@@ -530,29 +524,33 @@ export function SessionDetail() {
             style={{ bottom: inputBottomOffset }}
           >
             <div className="relative w-[94%] md:max-w-4xl">
-              {hasPromptContent && (
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onTouchEnd={(e) => {
-                    e.preventDefault()
-                    handleClearPrompt()
-                  }}
-                  onClick={handleClearPrompt}
-                  className="absolute -top-12 right-0 md:right-4 z-50 flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-br from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-destructive-foreground border-2 border-red-500/60 hover:border-red-400 shadow-lg shadow-red-500/30 hover:shadow-red-500/50 backdrop-blur-md transition-all duration-200 active:scale-95 hover:scale-105 ring-2 ring-red-500/20 hover:ring-red-500/40"
-                  aria-label="Clear"
-                >
-                  <X className="w-6 h-6" />
-                  <span className="text-sm font-medium hidden sm:inline">Clear</span>
-                </button>
-              )}
+              <div className="absolute -top-5 right-0 md:right-4 z-50 flex flex-col items-end gap-2">
+                {ttsEnabled && !hasPromptContent && !hasActiveStream && ((lastAssistantMessage && lastAssistantText) || preferences?.tts?.autoPlay) && (
+                  <FloatingTTSButton
+                    messageId={lastAssistantMessage?.info.id ?? ''}
+                    content={lastAssistantText}
+                  />
+                )}
+                {hasPromptContent && (
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onTouchEnd={(e) => {
+                      e.preventDefault()
+                      handleClearPrompt()
+                    }}
+                    onClick={handleClearPrompt}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-br from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-destructive-foreground border border-red-500/60 hover:border-red-400 shadow-md shadow-red-500/30 hover:shadow-red-500/50 backdrop-blur-md transition-all duration-200 active:scale-95 hover:scale-105 ring-1 ring-red-500/20 hover:ring-red-500/40"
+                    aria-label="Clear"
+                  >
+                    <X className="w-5 h-5" />
+                    <span className="text-sm font-medium hidden sm:inline">Clear</span>
+                  </button>
+                )}
+              </div>
               {leaderActive && (
                 <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-primary/90 text-primary-foreground border border-primary shadow-lg backdrop-blur-md animate-pulse">
                   <span className="text-sm font-medium">Waiting for shortcut key...</span>
                 </div>
-              )}
-
-              {ttsEnabled && lastAssistantText && !hasPromptContent && !hasActiveStream && (
-                <FloatingTTSButton content={lastAssistantText} />
               )}
               {minimizedQuestion && minimizedQuestion.sessionID === sessionId && (
                 <MinimizedQuestionIndicator

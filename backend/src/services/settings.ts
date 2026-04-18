@@ -3,10 +3,10 @@ import { unlinkSync, existsSync } from 'fs'
 import { getOpenCodeConfigFilePath } from '@opencode-manager/shared/config/env'
 import { logger } from '../utils/logger'
 import { parseJsonc } from '@opencode-manager/shared/utils'
+import { z } from 'zod'
 import type { 
   UserPreferences, 
   SettingsResponse, 
-  OpenCodeConfig,
   CreateOpenCodeConfigRequest,
   UpdateOpenCodeConfigRequest
 } from '../types/settings'
@@ -16,8 +16,21 @@ import {
   DEFAULT_USER_PREFERENCES,
 } from '../types/settings'
 
-interface OpenCodeConfigWithRaw extends OpenCodeConfig {
+interface OpenCodeConfigValidationIssue {
+  path: string
+  message: string
+}
+
+interface OpenCodeConfigWithRaw {
+  id: number
+  name: string
+  content: Record<string, unknown>
   rawContent: string
+  validationIssues?: OpenCodeConfigValidationIssue[]
+  isValid: boolean
+  isDefault: boolean
+  createdAt: number
+  updatedAt: number
 }
 
 interface OpenCodeConfigResponseWithRaw {
@@ -25,11 +38,46 @@ interface OpenCodeConfigResponseWithRaw {
   defaultConfig: OpenCodeConfigWithRaw | null
 }
 
+interface CreateOpenCodeConfigOptions {
+  suppressAutoDefault?: boolean
+}
+
 
 export class SettingsService {
   private static lastKnownGoodConfigContent: string | null = null
 
   constructor(private db: Database) {}
+
+  private getValidationIssues(error: z.ZodError): OpenCodeConfigValidationIssue[] {
+    return error.issues.map((issue) => ({
+      path: issue.path.length > 0 ? issue.path.join('.') : 'root',
+      message: issue.message,
+    }))
+  }
+
+  private parseStoredConfig(rawContent: string, configName: string): { content: Record<string, unknown>; validationIssues?: OpenCodeConfigValidationIssue[]; isValid: boolean } {
+    const parsed = parseJsonc(rawContent)
+    const content = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {}
+
+    const validated = OpenCodeConfigSchema.safeParse(parsed)
+    if (validated.success) {
+      return {
+        content: validated.data as Record<string, unknown>,
+        isValid: true,
+      }
+    }
+
+    const validationIssues = this.getValidationIssues(validated.error)
+    logger.error(`Failed to validate config ${configName}: ${validationIssues.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`)
+
+    return {
+      content,
+      validationIssues,
+      isValid: false,
+    }
+  }
 
   initializeLastKnownGoodConfig(userId: string = 'default'): void {
     const settings = this.getSettings(userId)
@@ -140,14 +188,15 @@ export class SettingsService {
     for (const row of rows) {
       try {
         const rawContent = row.config_content
-        const content = parseJsonc(rawContent)
-        const validated = OpenCodeConfigSchema.parse(content)
+        const parsedConfig = this.parseStoredConfig(rawContent, row.config_name)
         
         const config: OpenCodeConfigWithRaw = {
           id: row.id,
           name: row.config_name,
-          content: validated,
+          content: parsedConfig.content,
           rawContent: rawContent,
+          validationIssues: parsedConfig.validationIssues,
+          isValid: parsedConfig.isValid,
           isDefault: Boolean(row.is_default),
           createdAt: row.created_at,
           updatedAt: row.updated_at,
@@ -171,7 +220,8 @@ export class SettingsService {
 
   createOpenCodeConfig(
     request: CreateOpenCodeConfigRequest,
-    userId: string = 'default'
+    userId: string = 'default',
+    options: CreateOpenCodeConfigOptions = {}
   ): OpenCodeConfigWithRaw {
     // Check for existing config with the same name
     const existing = this.getOpenCodeConfigByName(request.name, userId)
@@ -194,7 +244,7 @@ export class SettingsService {
       .query('SELECT COUNT(*) as count FROM opencode_configs WHERE user_id = ?')
       .get(userId) as { count: number }
     
-    const shouldBeDefault = request.isDefault || existingCount.count === 0
+    const shouldBeDefault = request.isDefault || (!options.suppressAutoDefault && existingCount.count === 0)
 
     if (shouldBeDefault) {
       this.db
@@ -219,8 +269,9 @@ export class SettingsService {
     const config: OpenCodeConfigWithRaw = {
       id: result.lastInsertRowid as number,
       name: request.name,
-      content: contentValidated,
+      content: contentValidated as Record<string, unknown>,
       rawContent: rawContent,
+      isValid: true,
       isDefault: shouldBeDefault,
       createdAt: now,
       updatedAt: now,
@@ -282,8 +333,9 @@ export class SettingsService {
     const config: OpenCodeConfigWithRaw = {
       id: existing.id,
       name: configName,
-      content: contentValidated,
+      content: contentValidated as Record<string, unknown>,
       rawContent: rawContent,
+      isValid: true,
       isDefault: request.isDefault !== undefined ? request.isDefault : existing.is_default,
       createdAt: existing.created_at,
       updatedAt: now,
@@ -335,14 +387,15 @@ export class SettingsService {
 
     try {
       const rawContent = existing.config_content
-      const content = parseJsonc(rawContent)
-      const validated = OpenCodeConfigSchema.parse(content)
+      const parsedConfig = this.parseStoredConfig(rawContent, configName)
 
       const config: OpenCodeConfigWithRaw = {
         id: existing.id,
         name: configName,
-        content: validated,
+        content: parsedConfig.content,
         rawContent: rawContent,
+        validationIssues: parsedConfig.validationIssues,
+        isValid: parsedConfig.isValid,
         isDefault: true,
         createdAt: existing.created_at,
         updatedAt: now,
@@ -373,14 +426,15 @@ export class SettingsService {
 
     try {
       const rawContent = row.config_content
-      const content = parseJsonc(rawContent)
-      const validated = OpenCodeConfigSchema.parse(content)
+      const parsedConfig = this.parseStoredConfig(rawContent, row.config_name)
 
       return {
         id: row.id,
         name: row.config_name,
-        content: validated,
+        content: parsedConfig.content,
         rawContent: rawContent,
+        validationIssues: parsedConfig.validationIssues,
+        isValid: parsedConfig.isValid,
         isDefault: true,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -409,14 +463,15 @@ export class SettingsService {
 
     try {
       const rawContent = row.config_content
-      const content = parseJsonc(rawContent)
-      const validated = OpenCodeConfigSchema.parse(content)
+      const parsedConfig = this.parseStoredConfig(rawContent, configName)
 
       return {
         id: row.id,
         name: row.config_name,
-        content: validated,
+        content: parsedConfig.content,
         rawContent: rawContent,
+        validationIssues: parsedConfig.validationIssues,
+        isValid: parsedConfig.isValid,
         isDefault: Boolean(row.is_default),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
