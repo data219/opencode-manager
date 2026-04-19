@@ -39,10 +39,11 @@ export function RepoQuickSwitchSheet({ isOpen, onClose }: RepoQuickSwitchSheetPr
   }, [repos, searchQuery])
 
   const handleClick = (id: number) => {
-    onClose()
-    if (id !== activeRepoId) {
-      navigate(`/repos/${id}`)
+    if (id === activeRepoId) {
+      onClose()
+      return
     }
+    navigate(`/repos/${id}`, { replace: true })
   }
 
   return (

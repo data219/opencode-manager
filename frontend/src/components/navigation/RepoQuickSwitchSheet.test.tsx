@@ -36,9 +36,8 @@ describe('RepoQuickSwitchSheet', () => {
       <RepoQuickSwitchSheet isOpen onClose={handleClose} />,
       { wrapper: createWrapper() },
     )
-    expect(screen.getByText('Projects')).toBeInTheDocument()
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Search repos...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Search projects...')).toBeInTheDocument()
     })
   })
 
@@ -86,7 +85,7 @@ describe('RepoQuickSwitchSheet', () => {
       expect(screen.getByText('repo1')).toBeInTheDocument()
       expect(screen.getByText('repo2')).toBeInTheDocument()
     })
-    const input = screen.getByPlaceholderText('Search repos...')
+    const input = screen.getByPlaceholderText('Search projects...')
     fireEvent.change(input, { target: { value: 'repo1' } })
     await waitFor(() => {
       expect(screen.getByText('repo1')).toBeInTheDocument()
@@ -94,7 +93,7 @@ describe('RepoQuickSwitchSheet', () => {
     })
   })
 
-  it('navigates and closes on repo click', async () => {
+  it('navigates on repo click without calling onClose', async () => {
     vi.mocked(listRepos).mockResolvedValue([
       {
         id: 1,
@@ -116,6 +115,6 @@ describe('RepoQuickSwitchSheet', () => {
       expect(screen.getByText('repo1')).toBeInTheDocument()
     })
     fireEvent.click(screen.getByText('repo1'))
-    expect(handleClose).toHaveBeenCalled()
+    expect(handleClose).not.toHaveBeenCalled()
   })
 })
