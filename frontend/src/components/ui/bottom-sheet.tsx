@@ -78,7 +78,7 @@ export function BottomSheet({
       <div
         ref={panelRef}
         className={cn(
-          'fixed inset-x-0 bottom-0 bg-background rounded-t-2xl border-t border-border pb-safe',
+          'fixed inset-x-0 bottom-0 flex flex-col bg-background rounded-t-2xl border-t border-border',
           heightClass,
           className,
         )}
@@ -119,7 +119,7 @@ export interface BottomSheetContentProps {
 
 export function BottomSheetContent({ className, children }: BottomSheetContentProps) {
   return (
-    <div className={cn('flex-1 overflow-auto min-h-0 px-4 py-3', className)}>
+    <div className={cn('flex-1 overflow-auto min-h-0 px-4 pt-3 pb-safe', className)}>
       {children}
     </div>
   )
