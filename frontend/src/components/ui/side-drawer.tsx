@@ -87,16 +87,20 @@ export function SideDrawer({
 export interface SideDrawerHeaderProps {
   title: string
   onClose: () => void
+  meta?: React.ReactNode
 }
 
-export function SideDrawerHeader({ title, onClose }: SideDrawerHeaderProps) {
+export function SideDrawerHeader({ title, onClose, meta }: SideDrawerHeaderProps) {
   return (
-    <div className="flex-shrink-0 border-b border-border bg-background px-4 py-3 flex items-center justify-between">
-      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+    <div className="flex-shrink-0 border-b border-border bg-background px-4 py-2 flex items-center justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <h2 className="text-lg font-semibold text-foreground leading-none">{title}</h2>
+        {meta ? <div className="mt-1 min-w-0">{meta}</div> : null}
+      </div>
       <button
         type="button"
         onClick={onClose}
-        className="text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-sm p-1"
+        className="text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-sm p-1 shrink-0"
         aria-label="Close"
       >
         <X className="w-5 h-5" />

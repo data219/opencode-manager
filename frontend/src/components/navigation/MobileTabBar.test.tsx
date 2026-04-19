@@ -192,4 +192,34 @@ describe('MobileTabBar', () => {
     const secondReposButton = screen.getByText('Repos').closest('button')
     expect(secondReposButton).toBeInTheDocument()
   })
+
+  it('does not render tab bar on SessionDetail path /repos/:id/sessions/:sid', () => {
+    vi.mocked(useMobile).mockReturnValue(true)
+    const queryClient = new QueryClient()
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/repos/1/sessions/abc']}>
+          <MobileTabBar />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    expect(container.firstChild).toBeNull()
+  })
+
+  it('renders tab bar on Memories path /repos/:id/memories', () => {
+    vi.mocked(useMobile).mockReturnValue(true)
+    const queryClient = new QueryClient()
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/repos/1/memories']}>
+          <MobileTabBar />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    expect(screen.getByText('Repos')).toBeInTheDocument()
+    expect(screen.getByText('Files')).toBeInTheDocument()
+    expect(screen.getByText('Alerts')).toBeInTheDocument()
+    expect(screen.getByText('Schedules')).toBeInTheDocument()
+    expect(screen.getByText('More')).toBeInTheDocument()
+  })
 })

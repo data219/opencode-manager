@@ -133,11 +133,12 @@ export const MobileTabBar = memo(function MobileTabBar() {
   const hasPending = usePendingAlerts()
 
   const isOnRepoSchedules = /^\/repos\/\d+\/schedules$/.test(pathname)
+  const isRepoMemories = /^\/repos\/\d+\/memories$/.test(pathname)
   const isMobile = useMobile()
   const isRoot = pathname === '/'
   const isGlobalSchedules = pathname === '/schedules'
   const isRepoDetail = /^\/repos\/\d+$/.test(pathname)
-  const allow = isRoot || isGlobalSchedules || isRepoDetail || isOnRepoSchedules
+  const allow = isRoot || isGlobalSchedules || isRepoDetail || isOnRepoSchedules || isRepoMemories
 
   const tabs = useMemo<TabDef[]>(
     () => (isOnRepoSchedules

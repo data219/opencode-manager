@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { BottomSheet, BottomSheetHeader, BottomSheetContent } from '@/components/ui/bottom-sheet'
-import { getRepoDisplayName } from '@/lib/utils'
+import { cn, getRepoDisplayName } from '@/lib/utils'
 import { listRepos } from '@/api/repos'
+import { FolderGit2, Check } from 'lucide-react'
 
 interface RepoQuickSwitchSheetProps {
   isOpen: boolean
@@ -13,7 +14,13 @@ interface RepoQuickSwitchSheetProps {
 
 export function RepoQuickSwitchSheet({ isOpen, onClose }: RepoQuickSwitchSheetProps) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchQuery, setSearchQuery] = useState('')
+
+  const activeRepoId = useMemo(() => {
+    const match = location.pathname.match(/^\/repos\/(\d+)/)
+    return match ? Number(match[1]) : null
+  }, [location.pathname])
 
   const { data: repos, isLoading } = useQuery({
     queryKey: ['repos'],
@@ -32,12 +39,15 @@ export function RepoQuickSwitchSheet({ isOpen, onClose }: RepoQuickSwitchSheetPr
   }, [repos, searchQuery])
 
   const handleClick = (id: number) => {
-    navigate(`/repos/${id}`)
+    onClose()
+    if (id !== activeRepoId) {
+      navigate(`/repos/${id}`)
+    }
   }
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} heightClass="h-[70dvh]" ariaLabel="Switch repo">
-      <BottomSheetHeader title="Switch repo" />
+      <BottomSheetHeader title="Projects" />
       <BottomSheetContent className="flex flex-col gap-2 overflow-y-auto">
         <Input
           type="text"
@@ -48,27 +58,50 @@ export function RepoQuickSwitchSheet({ isOpen, onClose }: RepoQuickSwitchSheetPr
           className="flex-shrink-0"
         />
         {isLoading ? (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-9 rounded-md bg-muted animate-pulse" />
+              <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />
             ))}
           </div>
         ) : filteredRepos.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground text-sm">
-            No repos found
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <FolderGit2 className="h-12 w-12 mb-3 opacity-50" />
+            <p className="text-sm">No repos found</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
-            {filteredRepos.map((repo) => (
-              <button
-                key={repo.id}
-                type="button"
-                onClick={() => handleClick(repo.id)}
-                className="flex items-center px-2 py-2 rounded-md hover:bg-accent transition-colors text-left text-sm text-foreground truncate w-full"
-              >
-                {getRepoDisplayName(repo.repoUrl, repo.localPath, repo.sourcePath)}
-              </button>
-            ))}
+          <div className="flex flex-col gap-2">
+            {filteredRepos.map((repo) => {
+              const isActive = repo.id === activeRepoId
+              return (
+                <button
+                  key={repo.id}
+                  type="button"
+                  onClick={() => handleClick(repo.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={cn(
+                    'group flex items-center gap-3 p-3 rounded-lg border transition-all text-left w-full',
+                    isActive
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-accent hover:bg-accent/50',
+                  )}
+                >
+                  <div className="flex-shrink-0">
+                    <div
+                      className={cn(
+                        'flex items-center justify-center w-8 h-8 rounded-md',
+                        isActive ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary',
+                      )}
+                    >
+                      <FolderGit2 className="h-4 w-4" />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 font-medium text-sm text-foreground truncate">
+                    {getRepoDisplayName(repo.repoUrl, repo.localPath, repo.sourcePath)}
+                  </div>
+                  {isActive && <Check className="h-4 w-4 text-primary flex-shrink-0" />}
+                </button>
+              )
+            })}
           </div>
         )}
       </BottomSheetContent>

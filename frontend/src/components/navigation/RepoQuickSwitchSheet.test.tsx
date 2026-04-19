@@ -36,7 +36,7 @@ describe('RepoQuickSwitchSheet', () => {
       <RepoQuickSwitchSheet isOpen onClose={handleClose} />,
       { wrapper: createWrapper() },
     )
-    expect(screen.getByText('Switch repo')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Search repos...')).toBeInTheDocument()
     })

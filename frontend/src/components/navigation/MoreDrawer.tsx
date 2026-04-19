@@ -1,8 +1,9 @@
-import { useSettingsDialog } from '@/hooks/useSettingsDialog'
-import { useSettings } from '@/hooks/useSettings'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { useServerHealth } from '@/hooks/useServerHealth'
+import { useMemoryPluginStatus } from '@/hooks/useMemoryPluginStatus'
 import { SideDrawer, SideDrawerHeader, SideDrawerContent } from '@/components/ui/side-drawer'
-import { Settings, LogOut, Info, Moon, Sun, Monitor } from 'lucide-react'
+import { buildMoreItems } from './moreDrawerItems'
 
 interface MoreDrawerProps {
   isOpen: boolean
@@ -10,13 +11,18 @@ interface MoreDrawerProps {
 }
 
 export function MoreDrawer({ isOpen, onClose }: MoreDrawerProps) {
-  const { open: openSettingsDialog } = useSettingsDialog()
-  const { preferences, updateSettings } = useSettings()
+  const navigate = useNavigate()
+  const location = useLocation()
   const { logout } = useAuth()
+  const { data: health } = useServerHealth()
+  const { memoryPluginEnabled } = useMemoryPluginStatus()
 
   const handleSettingsClick = () => {
-    openSettingsDialog()
-    onClose()
+    const newParams = new URLSearchParams(location.search)
+    newParams.delete('mobileTab')
+    newParams.set('settings', 'open')
+    newParams.set('tab', 'account')
+    navigate({ search: newParams.toString() }, { replace: true })
   }
 
   const handleLogoutClick = async () => {
@@ -27,84 +33,53 @@ export function MoreDrawer({ isOpen, onClose }: MoreDrawerProps) {
     }
   }
 
-  const handleThemeChange = (theme: 'light' | 'dark' | 'system') => {
-    updateSettings({ theme })
+  const handleItemClick = (item: ReturnType<typeof buildMoreItems>[0]) => {
+    if (item.to) {
+      navigate(item.to)
+    } else if (item.dialog) {
+      const newParams = new URLSearchParams(location.search)
+      newParams.set('dialog', item.dialog)
+      newParams.delete('mobileTab')
+      navigate({ search: newParams.toString() }, { replace: true })
+    }
   }
 
-  const currentTheme = preferences?.theme || 'dark'
+  const items = buildMoreItems(location.pathname, { memoryPluginEnabled })
+
+  const opencodeVersion = health?.opencodeVersion
+  const managerVersion = health?.opencodeManagerVersion
 
   return (
     <SideDrawer isOpen={isOpen} onClose={onClose} side="right" ariaLabel="More">
-      <SideDrawerHeader title="More" onClose={onClose} />
-      <SideDrawerContent className="flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={handleSettingsClick}
-          className="flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors text-left w-full"
-        >
-          <Settings className="w-5 h-5 text-muted-foreground" />
-          <span className="font-medium text-foreground">Settings</span>
-        </button>
-
-        <div className="p-3">
-          <p className="text-sm font-medium text-foreground mb-2">Theme</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => handleThemeChange('light')}
-              className={`flex-1 flex items-center justify-center gap-2 p-2 rounded-lg border transition-colors ${
-                currentTheme === 'light'
-                  ? 'bg-primary/10 border-primary text-primary'
-                  : 'border-border hover:bg-accent'
-              }`}
-            >
-              <Sun className="w-4 h-4" />
-              <span className="text-sm">Light</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleThemeChange('dark')}
-              className={`flex-1 flex items-center justify-center gap-2 p-2 rounded-lg border transition-colors ${
-                currentTheme === 'dark'
-                  ? 'bg-primary/10 border-primary text-primary'
-                  : 'border-border hover:bg-accent'
-              }`}
-            >
-              <Moon className="w-4 h-4" />
-              <span className="text-sm">Dark</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleThemeChange('system')}
-              className={`flex-1 flex items-center justify-center gap-2 p-2 rounded-lg border transition-colors ${
-                currentTheme === 'system'
-                  ? 'bg-primary/10 border-primary text-primary'
-                  : 'border-border hover:bg-accent'
-              }`}
-            >
-              <Monitor className="w-4 h-4" />
-              <span className="text-sm">System</span>
-            </button>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleLogoutClick}
-          className="flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors text-left w-full"
-        >
-          <LogOut className="w-5 h-5 text-muted-foreground" />
-          <span className="font-medium text-foreground">Logout</span>
-        </button>
-
-        <div className="mt-auto p-3 border-t border-border">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Info className="w-4 h-4" />
-            <span className="text-sm">
-              {import.meta.env.VITE_APP_VERSION ? `v${import.meta.env.VITE_APP_VERSION}` : 'OpenCode'}
-            </span>
-          </div>
-        </div>
+      <SideDrawerHeader
+        title={opencodeVersion ? `OpenCode v${opencodeVersion}` : 'OpenCode'}
+        onClose={onClose}
+        meta={
+          managerVersion ? (
+            <div className="text-xs text-muted-foreground">Manager v{managerVersion}</div>
+          ) : null
+        }
+      />
+      <SideDrawerContent className="flex flex-col gap-1">
+        {items.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => {
+              if (item.key === 'settings') {
+                handleSettingsClick()
+              } else if (item.key === 'logout') {
+                handleLogoutClick()
+              } else {
+                handleItemClick(item)
+              }
+            }}
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors text-left w-full"
+          >
+            <item.icon className="w-5 h-5 text-muted-foreground" />
+            <span className="font-medium text-foreground">{item.label}</span>
+          </button>
+        ))}
       </SideDrawerContent>
     </SideDrawer>
   )

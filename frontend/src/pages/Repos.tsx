@@ -24,7 +24,9 @@ export function Repos() {
           <Header.Title logo>OpenCode</Header.Title>
         </div>
         <Header.Actions>
-          <PendingActionsGroup />
+          <div className="hidden sm:flex items-center gap-1">
+            <PendingActionsGroup />
+          </div>
           <Button
             variant="ghost"
             size="icon"
@@ -42,14 +44,16 @@ export function Repos() {
             <CalendarClock className="w-4 h-4 mr-2" />
             All Schedules
           </Button>
-          <Button onClick={() => setAddRepoOpen(true)} size="sm">
+          <Button onClick={() => setAddRepoOpen(true)} size="sm" className="hidden sm:inline-flex">
             <Plus className="w-4 h-4 mr-1" />
             Repo
+          </Button>
+          <Button onClick={() => setAddRepoOpen(true)} size="sm" className="sm:hidden h-10 w-10 p-0">
+            <Plus className="w-5 h-5" />
           </Button>
           <span className="hidden sm:block">
             <Header.Settings />
           </span>
-          <Header.MobileDropdown hideSettings />
         </Header.Actions>
       </Header>
       <div className="container mx-auto flex-1 pt-2 px-2 min-h-0 overflow-auto pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-0">
