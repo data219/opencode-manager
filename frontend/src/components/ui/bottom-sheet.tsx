@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { MODAL_TRANSITION_MS } from '@/lib/utils'
-import { useSwipeToClose } from '@/hooks/useMobile'
+import { useSwipeDismiss } from '@/hooks/useMobile'
 
 export interface BottomSheetProps {
   isOpen: boolean
@@ -23,10 +23,9 @@ export function BottomSheet({
   const [shouldRender, setShouldRender] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
 
-  const { bind, swipeStyles } = useSwipeToClose(onClose, {
+  const { bind, swipeStyles } = useSwipeDismiss(onClose, {
     enabled: isOpen,
     threshold: 80,
-    direction: 'vertical',
   })
 
   useEffect(() => {

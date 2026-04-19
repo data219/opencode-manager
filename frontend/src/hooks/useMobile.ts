@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react'
+import { useSwipeNavigation } from '@/contexts/SwipeNavigationContext'
 
 export function useMobile() {
   const [isMobile, setIsMobile] = useState(false)
@@ -20,26 +21,33 @@ export function useMobile() {
 const VELOCITY_THRESHOLD = 0.3
 const ANIMATION_DURATION = 300
 
-interface SwipeToCloseOptions {
+export interface UseSwipeBackOptions {
   threshold?: number
   edgeWidth?: number
   enabled?: boolean
-  canSwipeBack?: () => boolean
-  onSwipeBack?: () => void
-  direction?: 'horizontal' | 'vertical'
+  canBack?: () => boolean
+  onBack?: () => void
   velocityThreshold?: number
+  suspendsRouteSwipe?: boolean
 }
 
-export function useSwipeToClose(
+export interface UseSwipeDismissOptions {
+  threshold?: number
+  enabled?: boolean
+  velocityThreshold?: number
+  suspendsRouteSwipe?: boolean
+}
+
+function useSwipeHandlers(
   onClose: () => void,
-  options: SwipeToCloseOptions = {}
+  options: UseSwipeBackOptions & { direction: 'horizontal' | 'vertical' } = { direction: 'horizontal' }
 ) {
   const {
     threshold = 80,
     edgeWidth = 30,
     enabled = true,
-    canSwipeBack,
-    onSwipeBack,
+    canBack,
+    onBack,
     direction = 'horizontal',
     velocityThreshold = VELOCITY_THRESHOLD,
   } = options
@@ -78,6 +86,7 @@ export function useSwipeToClose(
 
   const handleTouchStart = useCallback((e: TouchEvent) => {
     if (!enabled || !isMobile) return
+
     const touch = e.touches[0]
 
     if (direction === 'vertical') {
@@ -181,8 +190,8 @@ export function useSwipeToClose(
         if (deltaY >= threshold || velocity >= velocityThreshold) {
           setDismissing(true)
           setTimeout(() => {
-            if (canSwipeBack?.()) {
-              onSwipeBack?.()
+            if (canBack?.()) {
+              onBack?.()
             } else {
               onClose()
             }
@@ -194,8 +203,8 @@ export function useSwipeToClose(
       } else {
         const deltaX = state.currentX - state.startX
         if (deltaX >= threshold) {
-          if (canSwipeBack?.()) {
-            onSwipeBack?.()
+          if (canBack?.()) {
+            onBack?.()
           } else {
             onClose()
           }
@@ -217,7 +226,7 @@ export function useSwipeToClose(
       startTime: 0,
       blockedByScroll: false,
     }
-  }, [enabled, isMobile, threshold, direction, velocityThreshold, onClose, canSwipeBack, onSwipeBack])
+  }, [enabled, isMobile, threshold, direction, velocityThreshold, onClose, canBack, onBack])
 
   const bind = useCallback((element: HTMLElement | null) => {
     if (!element || !enabled || !isMobile) return undefined
@@ -248,4 +257,122 @@ export function useSwipeToClose(
       }
 
   return { bind, swipeProgress, swipeStyles }
+}
+
+export function useSwipeBack(
+  onClose: () => void,
+  options: UseSwipeBackOptions = {}
+) {
+  const {
+    threshold = 80,
+    edgeWidth = 30,
+    enabled = true,
+    canBack,
+    onBack,
+    velocityThreshold = VELOCITY_THRESHOLD,
+    suspendsRouteSwipe = true,
+  } = options
+
+  const isMobile = useMobile()
+  const swipeNav = useSwipeNavigation()
+  const shouldSuspend = enabled && isMobile && suspendsRouteSwipe !== false
+
+  useEffect(() => {
+    if (shouldSuspend) {
+      swipeNav?.suspend()
+      return () => {
+        swipeNav?.resume()
+      }
+    }
+    return undefined
+  }, [shouldSuspend, swipeNav])
+
+  const wrappedOnBack = useCallback(() => {
+    if (!suspendsRouteSwipe && swipeNav?.isSuspended()) {
+      return
+    }
+    onBack?.()
+  }, [onBack, suspendsRouteSwipe, swipeNav])
+
+  const wrappedOnClose = useCallback(() => {
+    if (!suspendsRouteSwipe && swipeNav?.isSuspended()) {
+      return
+    }
+    onClose()
+  }, [onClose, suspendsRouteSwipe, swipeNav])
+
+  const { bind, swipeProgress, swipeStyles } = useSwipeHandlers(wrappedOnClose, {
+    threshold,
+    edgeWidth,
+    enabled,
+    canBack,
+    onBack: wrappedOnBack,
+    velocityThreshold,
+    direction: 'horizontal',
+  })
+
+  const wrappedBind = useCallback(
+    (element: HTMLElement | null) => {
+      const cleanup = bind(element)
+      return () => {
+        cleanup?.()
+      }
+    },
+    [bind]
+  )
+
+  return { bind: wrappedBind, swipeProgress, swipeStyles }
+}
+
+export function useSwipeDismiss(
+  onClose: () => void,
+  options: UseSwipeDismissOptions = {}
+) {
+  const {
+    threshold = 80,
+    enabled = true,
+    velocityThreshold = VELOCITY_THRESHOLD,
+    suspendsRouteSwipe = true,
+  } = options
+
+  const isMobile = useMobile()
+  const swipeNav = useSwipeNavigation()
+  const shouldSuspend = enabled && isMobile && suspendsRouteSwipe !== false
+
+  useEffect(() => {
+    if (shouldSuspend) {
+      swipeNav?.suspend()
+      return () => {
+        swipeNav?.resume()
+      }
+    }
+    return undefined
+  }, [shouldSuspend, swipeNav])
+
+  const wrappedOnClose = useCallback(() => {
+    if (!suspendsRouteSwipe && swipeNav?.isSuspended()) {
+      return
+    }
+    onClose()
+  }, [onClose, suspendsRouteSwipe, swipeNav])
+
+  const { bind, swipeProgress, swipeStyles } = useSwipeHandlers(wrappedOnClose, {
+    threshold,
+    edgeWidth: 30,
+    enabled,
+    velocityThreshold,
+    direction: 'vertical',
+  })
+
+  const wrappedBind = useCallback(
+    (element: HTMLElement | null) => {
+      const cleanup = bind(element)
+      return () => {
+        cleanup?.()
+      }
+    },
+    [bind]
+  )
+
+  return { bind: wrappedBind, swipeProgress, swipeStyles }
 }

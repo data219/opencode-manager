@@ -1,7 +1,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createBrowserRouter, RouterProvider, Outlet, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { createBrowserRouter, RouterProvider, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
 import { Toaster } from 'sonner'
 import { Repos } from './pages/Repos'
 import { RepoDetail } from './pages/RepoDetail'
@@ -18,9 +18,11 @@ import { PwaUpdatePrompt } from '@/components/PwaUpdatePrompt'
 import { MobileTabBar } from '@/components/navigation/MobileTabBar'
 import { MobileSheetHost } from '@/components/navigation/MobileSheetHost'
 import { useTheme } from './hooks/useTheme'
+import { useSwipeBack } from './hooks/useMobile'
 import { TTSProvider } from './contexts/TTSContext'
 import { AuthProvider } from './contexts/AuthContext'
 import { EventProvider, usePermissions, useEventContext } from '@/contexts/EventContext'
+import { SwipeNavigationProvider } from '@/contexts/SwipeNavigationContext'
 import { PermissionRequestDialog } from './components/session/PermissionRequestDialog'
 import { SSHHostKeyDialog } from './components/ssh/SSHHostKeyDialog'
 import { loginLoader, setupLoader, registerLoader, protectedLoader } from './lib/auth-loaders'
@@ -70,7 +72,28 @@ function PermissionDialogWrapper() {
 
 function AppShell() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const rootRef = useRef<HTMLDivElement>(null)
   useTheme()
+
+  const { bind: bindRouteSwipe } = useSwipeBack(
+    () => {},
+    {
+      enabled: true,
+      suspendsRouteSwipe: false,
+      canBack: () =>
+        window.history.length > 1 &&
+        !['/login', '/setup', '/register'].includes(location.pathname),
+      onBack: () => navigate(-1),
+    }
+  )
+
+  useEffect(() => {
+    const cleanup = bindRouteSwipe(rootRef.current)
+    return () => {
+      cleanup?.()
+    }
+  }, [bindRouteSwipe])
 
   useEffect(() => {
     const channel = new BroadcastChannel('notification-click')
@@ -86,7 +109,9 @@ function AppShell() {
   return (
     <AuthProvider>
       <EventProvider>
-        <Outlet />
+        <div ref={rootRef} className="contents">
+          <Outlet />
+        </div>
         <MobileTabBar />
         <MobileSheetHost />
         <PermissionDialogWrapper />
@@ -163,7 +188,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TTSProvider>
-        <RouterProvider router={router} />
+        <SwipeNavigationProvider>
+          <RouterProvider router={router} />
+        </SwipeNavigationProvider>
       </TTSProvider>
     </QueryClientProvider>
   )

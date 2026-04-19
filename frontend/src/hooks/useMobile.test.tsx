@@ -1,16 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import { useSwipeToClose } from './useMobile'
+import { useSwipeBack, useSwipeDismiss } from './useMobile'
+import { SwipeNavigationProvider, useSwipeNavigation } from '@/contexts/SwipeNavigationContext'
 
-describe('useSwipeToClose', () => {
+describe('useSwipeBack', () => {
   const mockOnClose = vi.fn()
-  const mockOnSwipeBack = vi.fn()
-  const mockCanSwipeBack = vi.fn()
+  const mockOnBack = vi.fn()
+  const mockCanBack = vi.fn()
 
   beforeEach(() => {
     mockOnClose.mockClear()
-    mockOnSwipeBack.mockClear()
-    mockCanSwipeBack.mockClear()
+    mockOnBack.mockClear()
+    mockCanBack.mockClear()
     Object.defineProperty(window, 'innerWidth', {
       writable: true,
       configurable: true,
@@ -22,17 +23,17 @@ describe('useSwipeToClose', () => {
     vi.clearAllMocks()
   })
 
-  it('calls onClose when swipe completes and canSwipeBack is false', () => {
-    mockCanSwipeBack.mockReturnValue(false)
+  it('calls onClose when swipe completes and canBack is false', () => {
+    mockCanBack.mockReturnValue(false)
     
     const element = document.createElement('div')
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeBack(mockOnClose, {
         enabled: true,
-        canSwipeBack: mockCanSwipeBack,
-        onSwipeBack: mockOnSwipeBack,
+        canBack: mockCanBack,
+        onBack: mockOnBack,
         threshold: 80,
       })
     )
@@ -53,25 +54,25 @@ describe('useSwipeToClose', () => {
     element.dispatchEvent(touchMove)
     element.dispatchEvent(touchEnd)
     
-    expect(mockCanSwipeBack).toHaveBeenCalled()
-    expect(mockOnSwipeBack).not.toHaveBeenCalled()
+    expect(mockCanBack).toHaveBeenCalled()
+    expect(mockOnBack).not.toHaveBeenCalled()
     expect(mockOnClose).toHaveBeenCalled()
     
     if (cleanup) cleanup()
     document.body.removeChild(element)
   })
 
-  it('calls onSwipeBack when swipe completes and canSwipeBack is true', () => {
-    mockCanSwipeBack.mockReturnValue(true)
+  it('calls onBack when swipe completes and canBack is true', () => {
+    mockCanBack.mockReturnValue(true)
 
     const element = document.createElement('div')
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeBack(mockOnClose, {
         enabled: true,
-        canSwipeBack: mockCanSwipeBack,
-        onSwipeBack: mockOnSwipeBack,
+        canBack: mockCanBack,
+        onBack: mockOnBack,
         threshold: 80,
       })
     )
@@ -92,17 +93,17 @@ describe('useSwipeToClose', () => {
     element.dispatchEvent(touchMove)
     element.dispatchEvent(touchEnd)
     
-    expect(mockCanSwipeBack).toHaveBeenCalled()
-    expect(mockOnSwipeBack).toHaveBeenCalled()
+    expect(mockCanBack).toHaveBeenCalled()
+    expect(mockOnBack).toHaveBeenCalled()
     expect(mockOnClose).not.toHaveBeenCalled()
     
     if (cleanup) cleanup()
     document.body.removeChild(element)
   })
 
-  it('falls back to onClose when canSwipeBack is not provided', () => {
+  it('falls back to onClose when canBack is not provided', () => {
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeBack(mockOnClose, {
         enabled: true,
         threshold: 80,
       })
@@ -114,7 +115,7 @@ describe('useSwipeToClose', () => {
 
   it('returns swipeStyles for visual feedback', () => {
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeBack(mockOnClose, {
         enabled: true,
       })
     )
@@ -126,7 +127,7 @@ describe('useSwipeToClose', () => {
 
   it('disables swipe when enabled is false', () => {
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeBack(mockOnClose, {
         enabled: false,
       })
     )
@@ -140,7 +141,7 @@ describe('useSwipeToClose', () => {
     const removeEventListenerSpy = vi.spyOn(element, 'removeEventListener')
 
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeBack(mockOnClose, {
         enabled: true,
         threshold: 80,
       })
@@ -159,20 +160,28 @@ describe('useSwipeToClose', () => {
     }
   })
 
-  it('disables route-level swipe-back while active', () => {
-    const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+  it('suspends route-level swipe-back while active', () => {
+    let swipeNavValue: ReturnType<typeof useSwipeNavigation>
+    
+    const { result, unmount } = renderHook(() => {
+      swipeNavValue = useSwipeNavigation()
+      return useSwipeBack(mockOnClose, {
         enabled: true,
       })
-    )
+    }, {
+      wrapper: SwipeNavigationProvider,
+    })
 
     expect(result.current.bind).toBeDefined()
     expect(result.current.swipeStyles).toBeDefined()
+    expect(swipeNavValue?.isSuspended()).toBe(true)
+    
+    unmount()
+    expect(swipeNavValue?.isSuspended()).toBe(false)
   })
-
 })
 
-describe('useSwipeToClose vertical mode', () => {
+describe('useSwipeDismiss', () => {
   const mockOnClose = vi.fn()
 
   beforeEach(() => {
@@ -190,15 +199,32 @@ describe('useSwipeToClose vertical mode', () => {
     vi.useRealTimers()
   })
 
+  it('suspends route-level swipe-back while active', () => {
+    let swipeNavValue: ReturnType<typeof useSwipeNavigation>
+    
+    const { unmount } = renderHook(() => {
+      swipeNavValue = useSwipeNavigation()
+      return useSwipeDismiss(mockOnClose, {
+        enabled: true,
+      })
+    }, {
+      wrapper: SwipeNavigationProvider,
+    })
+
+    expect(swipeNavValue?.isSuspended()).toBe(true)
+    
+    unmount()
+    expect(swipeNavValue?.isSuspended()).toBe(false)
+  })
+
   it('does not require edge start in vertical mode', () => {
     const element = document.createElement('div')
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeDismiss(mockOnClose, {
         enabled: true,
         threshold: 80,
-        direction: 'vertical',
       })
     )
 
@@ -230,10 +256,9 @@ describe('useSwipeToClose vertical mode', () => {
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeDismiss(mockOnClose, {
         enabled: true,
         threshold: 80,
-        direction: 'vertical',
       })
     )
 
@@ -265,11 +290,9 @@ describe('useSwipeToClose vertical mode', () => {
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeDismiss(mockOnClose, {
         enabled: true,
         threshold: 80,
-        direction: 'vertical',
-        velocityThreshold: 0.3,
       })
     )
 
@@ -304,10 +327,9 @@ describe('useSwipeToClose vertical mode', () => {
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeDismiss(mockOnClose, {
         enabled: true,
         threshold: 80,
-        direction: 'vertical',
       })
     )
 
@@ -341,10 +363,9 @@ describe('useSwipeToClose vertical mode', () => {
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeDismiss(mockOnClose, {
         enabled: true,
         threshold: 80,
-        direction: 'vertical',
       })
     )
 
@@ -375,10 +396,9 @@ describe('useSwipeToClose vertical mode', () => {
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeDismiss(mockOnClose, {
         enabled: true,
         threshold: 80,
-        direction: 'vertical',
       })
     )
 
@@ -409,10 +429,9 @@ describe('useSwipeToClose vertical mode', () => {
     document.body.appendChild(element)
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeDismiss(mockOnClose, {
         enabled: false,
         threshold: 80,
-        direction: 'vertical',
       })
     )
 
@@ -451,10 +470,9 @@ describe('useSwipeToClose vertical mode', () => {
     scrollable.scrollTop = 50
     
     const { result } = renderHook(() =>
-      useSwipeToClose(mockOnClose, {
+      useSwipeDismiss(mockOnClose, {
         enabled: true,
         threshold: 80,
-        direction: 'vertical',
       })
     )
 

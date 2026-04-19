@@ -1,10 +1,10 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BottomSheet, BottomSheetHeader, BottomSheetContent } from './bottom-sheet'
-import { useSwipeToClose } from '@/hooks/useMobile'
+import { useSwipeDismiss } from '@/hooks/useMobile'
 
 vi.mock('@/hooks/useMobile', () => ({
-  useSwipeToClose: vi.fn(() => ({
+  useSwipeDismiss: vi.fn(() => ({
     bind: vi.fn(),
     swipeProgress: 0,
     swipeStyles: {},
@@ -81,9 +81,9 @@ describe('BottomSheet', () => {
     expect(dialog).toHaveClass('h-[50dvh]')
   })
 
-  it('passes direction: vertical to useSwipeToClose', () => {
+  it('passes correct options to useSwipeDismiss', () => {
     const mockBind = vi.fn()
-    vi.mocked(useSwipeToClose).mockReturnValue({
+    vi.mocked(useSwipeDismiss).mockReturnValue({
       bind: mockBind,
       swipeProgress: 0,
       swipeStyles: {},
@@ -95,16 +95,15 @@ describe('BottomSheet', () => {
       </BottomSheet>,
     )
 
-    expect(useSwipeToClose).toHaveBeenCalledWith(expect.any(Function), {
+    expect(useSwipeDismiss).toHaveBeenCalledWith(expect.any(Function), {
       enabled: true,
       threshold: 80,
-      direction: 'vertical',
     })
   })
 
   it('binds gesture to the panel element with aria-modal', () => {
     const mockBind = vi.fn()
-    vi.mocked(useSwipeToClose).mockReturnValue({
+    vi.mocked(useSwipeDismiss).mockReturnValue({
       bind: mockBind,
       swipeProgress: 0,
       swipeStyles: {},
