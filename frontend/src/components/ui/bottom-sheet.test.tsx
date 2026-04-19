@@ -1,8 +1,21 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BottomSheet, BottomSheetHeader, BottomSheetContent } from './bottom-sheet'
+import { useSwipeToClose } from '@/hooks/useMobile'
+
+vi.mock('@/hooks/useMobile', () => ({
+  useSwipeToClose: vi.fn(() => ({
+    bind: vi.fn(),
+    swipeProgress: 0,
+    swipeStyles: {},
+  })),
+}))
 
 describe('BottomSheet', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('renders when isOpen is true', () => {
     render(
       <BottomSheet isOpen onClose={() => {}} ariaLabel="Test sheet">
@@ -66,6 +79,47 @@ describe('BottomSheet', () => {
     )
     const dialog = document.querySelector('[role="dialog"]')
     expect(dialog).toHaveClass('h-[50dvh]')
+  })
+
+  it('passes direction: vertical to useSwipeToClose', () => {
+    const mockBind = vi.fn()
+    vi.mocked(useSwipeToClose).mockReturnValue({
+      bind: mockBind,
+      swipeProgress: 0,
+      swipeStyles: {},
+    })
+
+    render(
+      <BottomSheet isOpen onClose={() => {}} ariaLabel="Test sheet">
+        <div>Test content</div>
+      </BottomSheet>,
+    )
+
+    expect(useSwipeToClose).toHaveBeenCalledWith(expect.any(Function), {
+      enabled: true,
+      threshold: 80,
+      direction: 'vertical',
+    })
+  })
+
+  it('binds gesture to the panel element with aria-modal', () => {
+    const mockBind = vi.fn()
+    vi.mocked(useSwipeToClose).mockReturnValue({
+      bind: mockBind,
+      swipeProgress: 0,
+      swipeStyles: {},
+    })
+
+    render(
+      <BottomSheet isOpen onClose={() => {}} ariaLabel="Test sheet">
+        <div>Test content</div>
+      </BottomSheet>,
+    )
+
+    const panelElement = document.querySelector('[aria-modal="true"]')
+    expect(panelElement).toBeInTheDocument()
+
+    expect(mockBind).toHaveBeenCalled()
   })
 })
 

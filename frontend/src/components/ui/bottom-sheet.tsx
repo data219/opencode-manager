@@ -21,15 +21,16 @@ export function BottomSheet({
   ariaLabel,
 }: BottomSheetProps) {
   const [shouldRender, setShouldRender] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const { bind, swipeStyles } = useSwipeToClose(onClose, {
     enabled: isOpen,
     threshold: 80,
+    direction: 'vertical',
   })
 
   useEffect(() => {
-    return bind(containerRef.current)
+    return bind(panelRef.current)
   }, [bind])
 
   useEffect(() => {
@@ -63,7 +64,6 @@ export function BottomSheet({
 
   return (
     <div
-      ref={containerRef}
       className="fixed inset-0 z-50"
       style={{
         opacity: isOpen ? 1 : 0,
@@ -77,6 +77,7 @@ export function BottomSheet({
         aria-hidden="true"
       />
       <div
+        ref={panelRef}
         className={cn(
           'fixed inset-x-0 bottom-0 bg-background rounded-t-2xl border-t border-border pb-safe',
           heightClass,

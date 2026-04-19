@@ -1,13 +1,10 @@
+import { memo, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { FolderGit2, FolderOpen, Bell, CalendarClock, Menu } from 'lucide-react'
+import { FolderGit2, FolderOpen, Bell, CalendarClock, Menu, Info, History } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMobile } from '@/hooks/useMobile'
-import { useMobileTabBar } from '@/hooks/useMobileTabBar'
-import { usePermissions, useQuestions } from '@/contexts/EventContext'
-import { FileBrowserSheet } from '@/components/file-browser/FileBrowserSheet'
-import { RepoQuickSwitchSheet } from '@/components/navigation/RepoQuickSwitchSheet'
-import { NotificationsSheet } from '@/components/navigation/NotificationsSheet'
-import { MoreDrawer } from '@/components/navigation/MoreDrawer'
+import { useMobileTabBar, useScheduleTab, type ScheduleTabKey } from '@/hooks/useMobileTabBar'
+import { usePendingAlerts } from '@/contexts/EventContext'
 
 interface TabDef {
   key: string
@@ -15,30 +12,25 @@ interface TabDef {
   icon: React.ElementType
   onClick: () => void
   active: boolean
-  badge?: number
+  badge?: boolean
 }
 
-export function MobileTabBar() {
-  const isMobile = useMobile()
-  const location = useLocation()
-  const navigate = useNavigate()
-  const { openSheet, open, close } = useMobileTabBar()
-  const { pendingCount: permissionCount } = usePermissions()
-  const { pendingCount: questionCount } = useQuestions()
-  const totalPending = permissionCount + questionCount
+interface GlobalTabsArgs {
+  pathname: string
+  openSheet: ReturnType<typeof useMobileTabBar>['openSheet']
+  open: ReturnType<typeof useMobileTabBar>['open']
+  navigate: ReturnType<typeof useNavigate>
+  hasPending: boolean
+}
 
-  if (!isMobile) return null
-
-  const allow = location.pathname === '/' || location.pathname === '/schedules'
-  if (!allow) return null
-
-  const tabs: TabDef[] = [
+function buildGlobalTabs({ pathname, openSheet, open, navigate, hasPending }: GlobalTabsArgs): TabDef[] {
+  return [
     {
       key: 'repos',
       label: 'Repos',
       icon: FolderGit2,
       onClick: () => open('repos'),
-      active: openSheet === 'repos' || location.pathname === '/',
+      active: openSheet === 'repos' || (pathname === '/' && !openSheet),
     },
     {
       key: 'files',
@@ -52,7 +44,7 @@ export function MobileTabBar() {
       label: 'Alerts',
       icon: Bell,
       onClick: () => open('notifications'),
-      badge: totalPending,
+      badge: hasPending,
       active: openSheet === 'notifications',
     },
     {
@@ -60,7 +52,7 @@ export function MobileTabBar() {
       label: 'Schedules',
       icon: CalendarClock,
       onClick: () => navigate('/schedules'),
-      active: location.pathname === '/schedules' && !openSheet,
+      active: pathname === '/schedules' && !openSheet,
     },
     {
       key: 'more',
@@ -70,56 +62,98 @@ export function MobileTabBar() {
       active: openSheet === 'more',
     },
   ]
-
-  return (
-    <>
-      <div className="fixed bottom-0 inset-x-0 z-40 flex border-t border-border bg-card/80 backdrop-blur-sm pb-safe">
-        {tabs.map((tab) => {
-          const Icon = tab.icon
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              className={cn(
-                'flex-1 flex flex-col items-center gap-0.5 pt-2.5 pb-2 text-xs font-medium transition-colors',
-                tab.active
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-              )}
-              onClick={tab.onClick}
-            >
-              <div className="relative">
-                <Icon className="w-5 h-5" />
-                {tab.badge && tab.badge > 0 && (
-                  <span className="absolute top-1 right-[calc(50%-14px)] w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                )}
-              </div>
-              <span>{tab.label}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      {openSheet === 'repos' && (
-        <RepoQuickSwitchSheet isOpen onClose={close} />
-      )}
-
-      {openSheet === 'files' && (
-        <FileBrowserSheet
-          isOpen
-          onClose={close}
-          basePath=""
-          repoName="Workspace Root"
-        />
-      )}
-
-      {openSheet === 'notifications' && (
-        <NotificationsSheet isOpen onClose={close} />
-      )}
-
-      {openSheet === 'more' && (
-        <MoreDrawer isOpen onClose={close} />
-      )}
-    </>
-  )
 }
+
+function buildScheduleTabs(scheduleTab: ScheduleTabKey, setScheduleTab: (tab: ScheduleTabKey) => void): TabDef[] {
+  return [
+    {
+      key: 'jobs',
+      label: 'Jobs',
+      icon: CalendarClock,
+      onClick: () => setScheduleTab('jobs'),
+      active: scheduleTab === 'jobs',
+    },
+    {
+      key: 'detail',
+      label: 'Detail',
+      icon: Info,
+      onClick: () => setScheduleTab('detail'),
+      active: scheduleTab === 'detail',
+    },
+    {
+      key: 'runs',
+      label: 'Runs',
+      icon: History,
+      onClick: () => setScheduleTab('runs'),
+      active: scheduleTab === 'runs',
+    },
+  ]
+}
+
+interface TabBarRowProps {
+  tabs: TabDef[]
+}
+
+const TabBarRow = memo(function TabBarRow({ tabs }: TabBarRowProps) {
+  return (
+    <div className="fixed bottom-0 inset-x-0 z-40 flex border-t border-border bg-card/90 backdrop-blur-sm pb-safe">
+      {tabs.map((tab) => {
+        const Icon = tab.icon
+        return (
+          <button
+            key={tab.key}
+            type="button"
+            className={cn(
+              'relative flex-1 flex flex-col items-center justify-center gap-1 px-2 py-2 text-xs font-medium border-b-2 transition-colors',
+              tab.active
+                ? 'text-primary border-primary'
+                : 'text-muted-foreground border-transparent hover:text-foreground',
+            )}
+            onClick={tab.onClick}
+          >
+            <div className="relative">
+              <Icon className="w-5 h-5" />
+              {tab.badge && (
+                <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-500 ring-2 ring-card animate-pulse" />
+              )}
+            </div>
+            <span className="leading-none">{tab.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+})
+
+export const MobileTabBar = memo(function MobileTabBar() {
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const { openSheet, open } = useMobileTabBar()
+  const { scheduleTab, setScheduleTab } = useScheduleTab()
+  const hasPending = usePendingAlerts()
+
+  const isOnRepoSchedules = /^\/repos\/\d+\/schedules$/.test(pathname)
+  const isMobile = useMobile()
+  const isRoot = pathname === '/'
+  const isGlobalSchedules = pathname === '/schedules'
+  const isRepoDetail = /^\/repos\/\d+$/.test(pathname)
+  const allow = isRoot || isGlobalSchedules || isRepoDetail || isOnRepoSchedules
+
+  const tabs = useMemo<TabDef[]>(
+    () => (isOnRepoSchedules
+      ? buildScheduleTabs(scheduleTab, setScheduleTab)
+      : buildGlobalTabs({
+          pathname,
+          openSheet,
+          open,
+          navigate,
+          hasPending,
+        })),
+    [isOnRepoSchedules, scheduleTab, setScheduleTab, pathname, openSheet, open, navigate, hasPending],
+  )
+
+  if (!isMobile) return null
+  if (!allow) return null
+
+  return <TabBarRow tabs={tabs} />
+})

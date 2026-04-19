@@ -52,7 +52,7 @@ export function Repos() {
           <Header.MobileDropdown hideSettings />
         </Header.Actions>
       </Header>
-      <div className="container mx-auto flex-1 pt-2 px-2 min-h-0 overflow-auto pb-[calc(env(safe-area-inset-bottom)+64px)] sm:pb-0">
+      <div className="container mx-auto flex-1 pt-2 px-2 min-h-0 overflow-auto pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-0">
 
         <RepoList />
       </div>

@@ -110,7 +110,7 @@ export function RepoDetail() {
 
   return (
     <div
-      className="h-dvh max-h-dvh overflow-hidden bg-gradient-to-br from-background via-background to-background flex flex-col"
+      className="h-dvh max-h-dvh overflow-hidden bg-gradient-to-br from-background via-background to-background flex flex-col pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-0"
     >
     <Header>
       <Header.BackButton to="/" />
