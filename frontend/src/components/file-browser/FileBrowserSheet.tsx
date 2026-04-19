@@ -6,7 +6,7 @@ import { FullscreenSheet, FullscreenSheetHeader, FullscreenSheetContent } from '
 import { DownloadDialog } from '@/components/ui/download-dialog'
 import { X, Download } from 'lucide-react'
 import { GPU_ACCELERATED_STYLE, MODAL_TRANSITION_MS } from '@/lib/utils'
-import { useSwipeToClose } from '@/hooks/useMobile'
+import { useSwipeBack } from '@/hooks/useMobile'
 import { downloadDirectoryAsZip } from '@/api/files'
 import { downloadRepo } from '@/api/repos'
 import {
