@@ -57,7 +57,7 @@ export function Repos() {
           </span>
         </Header.Actions>
       </Header>
-      <div className="container mx-auto flex-1 pt-2 px-2 min-h-0 overflow-auto pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-0">
+      <div className="container mx-auto flex-1 pt-2 px-2 min-h-0 overflow-auto pb-[calc(env(safe-area-inset-bottom)+60px)] sm:pb-0">
 
         <RepoList />
       </div>
