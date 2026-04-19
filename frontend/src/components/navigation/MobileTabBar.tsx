@@ -21,9 +21,20 @@ interface GlobalTabsArgs {
   open: ReturnType<typeof useMobileTabBar>['open']
   navigate: ReturnType<typeof useNavigate>
   hasPending: boolean
+  isInsideRepo: boolean
+  repoId: string | null
 }
 
-function buildGlobalTabs({ pathname, openSheet, open, navigate, hasPending }: GlobalTabsArgs): TabDef[] {
+function buildGlobalTabs({ pathname, openSheet, open, navigate, hasPending, isInsideRepo, repoId }: GlobalTabsArgs): TabDef[] {
+  const handleFilesClick = () => {
+    if (isInsideRepo && repoId) {
+      const newParams = new URLSearchParams({ dialog: 'files' })
+      navigate(`${pathname}?${newParams.toString()}`, { replace: true })
+    } else {
+      open('files')
+    }
+  }
+
   return [
     {
       key: 'repos',
@@ -36,7 +47,7 @@ function buildGlobalTabs({ pathname, openSheet, open, navigate, hasPending }: Gl
       key: 'files',
       label: 'Files',
       icon: FolderOpen,
-      onClick: () => open('files'),
+      onClick: handleFilesClick,
       active: openSheet === 'files',
     },
     {
@@ -134,11 +145,16 @@ export const MobileTabBar = memo(function MobileTabBar() {
 
   const isOnRepoSchedules = /^\/repos\/\d+\/schedules$/.test(pathname)
   const isRepoMemories = /^\/repos\/\d+\/memories$/.test(pathname)
+  const isRepoSession = /^\/repos\/\d+\/sessions\/\w+/.test(pathname)
   const isMobile = useMobile()
   const isRoot = pathname === '/'
   const isGlobalSchedules = pathname === '/schedules'
   const isRepoDetail = /^\/repos\/\d+$/.test(pathname)
-  const allow = isRoot || isGlobalSchedules || isRepoDetail || isOnRepoSchedules || isRepoMemories
+  const isInsideRepo = isRepoDetail || isOnRepoSchedules || isRepoMemories || isRepoSession
+  const allow = isRoot || isGlobalSchedules || isInsideRepo
+
+  const repoIdMatch = pathname.match(/^\/repos\/(\d+)/)
+  const repoId = repoIdMatch ? repoIdMatch[1] : null
 
   const tabs = useMemo<TabDef[]>(
     () => (isOnRepoSchedules
@@ -149,8 +165,10 @@ export const MobileTabBar = memo(function MobileTabBar() {
           open,
           navigate,
           hasPending,
+          isInsideRepo,
+          repoId,
         })),
-    [isOnRepoSchedules, scheduleTab, setScheduleTab, pathname, openSheet, open, navigate, hasPending],
+    [isOnRepoSchedules, scheduleTab, setScheduleTab, pathname, openSheet, open, navigate, hasPending, isInsideRepo, repoId],
   )
 
   if (!isMobile) return null
