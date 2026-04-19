@@ -87,8 +87,8 @@ export function Memories() {
                 <Plus className="w-4 h-4 mr-2" />
                 New Memory
               </Button>
-              <Button onClick={() => setCreateOpen(true)} size="sm" className="sm:hidden">
-                <Plus className="w-4 h-4" />
+              <Button onClick={() => setCreateOpen(true)} size="sm" className="sm:hidden h-10 w-10 p-0">
+                <Plus className="w-5 h-5" />
               </Button>
             </>
           )}
