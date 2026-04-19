@@ -145,13 +145,13 @@ export const MobileTabBar = memo(function MobileTabBar() {
 
   const isOnRepoSchedules = /^\/repos\/\d+\/schedules$/.test(pathname)
   const isRepoMemories = /^\/repos\/\d+\/memories$/.test(pathname)
-  const isRepoSession = /^\/repos\/\d+\/sessions\/\w+/.test(pathname)
   const isMobile = useMobile()
   const isRoot = pathname === '/'
   const isGlobalSchedules = pathname === '/schedules'
   const isRepoDetail = /^\/repos\/\d+$/.test(pathname)
-  const isInsideRepo = isRepoDetail || isOnRepoSchedules || isRepoMemories || isRepoSession
-  const allow = isRoot || isGlobalSchedules || isInsideRepo
+  const isInsideRepo = isRepoDetail || isOnRepoSchedules || isRepoMemories
+  const isRepoSession = /^\/repos\/\d+\/sessions\/\w+/.test(pathname)
+  const allow = isRoot || isGlobalSchedules || (isInsideRepo && !isRepoSession)
 
   const repoIdMatch = pathname.match(/^\/repos\/(\d+)/)
   const repoId = repoIdMatch ? repoIdMatch[1] : null
