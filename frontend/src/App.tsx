@@ -76,15 +76,48 @@ function AppShell() {
   const rootRef = useRef<HTMLDivElement>(null)
   useTheme()
 
+  const getSwipeBackTarget = () => {
+    const path = location.pathname
+    if (path.match(/^\/repos\/[^/]+\/sessions\/[^/]+$/)) {
+      const repoId = path.split('/')[2]
+      return `/repos/${repoId}`
+    }
+    if (path.match(/^\/repos\/[^/]+$/)) {
+      return '/'
+    }
+    if (path.match(/^\/repos\/[^/]+\/memories$/)) {
+      const repoId = path.split('/')[2]
+      return `/repos/${repoId}`
+    }
+    if (path.match(/^\/repos\/[^/]+\/schedules$/)) {
+      const repoId = path.split('/')[2]
+      return `/repos/${repoId}`
+    }
+    if (path === '/schedules') {
+      return '/'
+    }
+    return null
+  }
+
+  const canSwipeBack = () => {
+    const path = location.pathname
+    return !['/login', '/setup', '/register', '/'].includes(path) && getSwipeBackTarget() !== null
+  }
+
+  const handleSwipeBack = () => {
+    const target = getSwipeBackTarget()
+    if (target) {
+      navigate(target)
+    }
+  }
+
   const { bind: bindRouteSwipe } = useSwipeBack(
     () => {},
     {
       enabled: true,
       suspendsRouteSwipe: false,
-      canBack: () =>
-        window.history.length > 1 &&
-        !['/login', '/setup', '/register'].includes(location.pathname),
-      onBack: () => navigate(-1),
+      canBack: canSwipeBack,
+      onBack: handleSwipeBack,
     }
   )
 
