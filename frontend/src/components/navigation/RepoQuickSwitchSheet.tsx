@@ -47,16 +47,17 @@ export function RepoQuickSwitchSheet({ isOpen, onClose }: RepoQuickSwitchSheetPr
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} heightClass="h-[70dvh]" ariaLabel="Switch repo">
-      <BottomSheetHeader title="Projects" />
-      <BottomSheetContent className="flex flex-col gap-2 overflow-y-auto">
+      <BottomSheetHeader>
         <Input
           type="text"
-          placeholder="Search repos..."
+          placeholder="Search projects..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           autoFocus
           className="flex-shrink-0"
         />
+      </BottomSheetHeader>
+      <BottomSheetContent className="flex flex-col gap-2 overflow-y-auto pt-2">
         {isLoading ? (
           <div className="flex flex-col gap-2">
             {Array.from({ length: 5 }).map((_, i) => (
