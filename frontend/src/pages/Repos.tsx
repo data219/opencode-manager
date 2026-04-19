@@ -48,8 +48,9 @@ export function Repos() {
             <Plus className="w-4 h-4 mr-1" />
             Repo
           </Button>
-          <Button onClick={() => setAddRepoOpen(true)} size="sm" className="sm:hidden h-10 w-10 p-0">
-            <Plus className="w-5 h-5" />
+          <Button onClick={() => setAddRepoOpen(true)} size="sm" className="sm:hidden">
+            <Plus className="w-4 h-4 mr-1" />
+            Repo
           </Button>
           <span className="hidden sm:block">
             <Header.Settings />
