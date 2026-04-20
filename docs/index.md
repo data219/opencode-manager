@@ -39,6 +39,7 @@ OpenCode Manager provides a web-based interface for OpenCode AI agents, allowing
 - **AI Configuration** - Configure models, providers, OAuth, and custom agents
 - **MCP Servers** - Add local or remote MCP servers with OAuth support
 - **Memory Plugin (Optional)** — Persistent project knowledge with semantic search ([GitHub](https://github.com/chriswritescode-dev/opencode-memory))
+- **Workspace Plugin** - Connect OpenCode TUI to opencode-manager for remote workspace access
 
 !!! tip "Memory Plugin — Persistent Project Knowledge"
     Store and retrieve project knowledge across sessions using vector embeddings and semantic search. Works as a standalone plugin with any OpenCode installation.
@@ -52,4 +53,5 @@ OpenCode Manager provides a web-based interface for OpenCode AI agents, allowing
 - [Features Overview](features/overview.md) - Explore all features
 - [Schedules & Recurring Jobs](features/schedules.md) - Automate recurring repo reviews and follow-ups
 - [Memory Plugin](features/memory.md) - Persistent project knowledge with semantic search ([GitHub](https://github.com/chriswritescode-dev/opencode-memory))
+- [Workspace Plugin](features/workspace-plugin.md) - Connect OpenCode TUI to opencode-manager
 - [Configuration](configuration/environment.md) - Environment variables and setup

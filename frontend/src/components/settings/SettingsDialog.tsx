@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { GeneralSettings } from '@/components/settings/GeneralSettings'
 import { GitSettings } from '@/components/settings/GitSettings'
 import { KeyboardShortcuts } from '@/components/settings/KeyboardShortcuts'
@@ -7,31 +7,25 @@ import { ProviderSettings } from '@/components/settings/ProviderSettings'
 import { AccountSettings } from '@/components/settings/AccountSettings'
 import { VoiceSettings } from '@/components/settings/VoiceSettings'
 import { NotificationSettings } from '@/components/settings/NotificationSettings'
+import { ApiTokensPanel } from '@/components/settings/ApiTokensPanel'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Settings2, Keyboard, Code, ChevronLeft, Key, GitBranch, User, Volume2, Bell, X } from 'lucide-react'
+import { Settings2, Keyboard, Code, ChevronLeft, Key, GitBranch, User, Volume2, Bell, X, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useSwipeToClose } from '@/hooks/useMobile'
+import { useSwipeBack } from '@/hooks/useMobile'
 import { useSettingsDialog } from '@/hooks/useSettingsDialog'
 
-type SettingsView = 'menu' | 'general' | 'git' | 'shortcuts' | 'opencode' | 'providers' | 'account' | 'voice' | 'notifications'
+type SettingsView = 'menu' | 'general' | 'git' | 'shortcuts' | 'opencode' | 'providers' | 'account' | 'voice' | 'notifications' | 'tokens'
 
 export function SettingsDialog() {
   const { isOpen, close, activeTab, setActiveTab } = useSettingsDialog()
   const [mobileView, setMobileView] = useState<SettingsView>('menu')
   const contentRef = useRef<HTMLDivElement>(null)
 
-  const handleSwipeBack = useCallback(() => {
-    if (mobileView === 'menu') {
-      setMobileView('menu')
-      close()
-    } else {
-      setMobileView('menu')
-    }
-  }, [mobileView, close])
-
-  const { bind: bindSwipe, swipeStyles } = useSwipeToClose(handleSwipeBack, {
+  const { bind: bindSwipe, swipeStyles } = useSwipeBack(close, {
     enabled: isOpen,
+    canBack: () => mobileView !== 'menu',
+    onBack: () => setMobileView('menu'),
   })
 
   useEffect(() => {
@@ -59,6 +53,7 @@ export function SettingsDialog() {
     { id: 'shortcuts', icon: Keyboard, label: 'Keyboard Shortcuts', description: 'Customize keyboard shortcuts' },
     { id: 'opencode', icon: Code, label: 'OpenCode Config', description: 'Manage OpenCode configurations, commands, and agents' },
     { id: 'providers', icon: Key, label: 'Providers', description: 'Manage AI provider API keys' },
+    { id: 'tokens', icon: ShieldCheck, label: 'API Tokens', description: 'Manage API tokens for external access' },
   ]
 
   const handleTabChange = (tab: string) => {
@@ -89,46 +84,50 @@ export function SettingsDialog() {
            </div>
           <Tabs defaultValue="account" value={activeTab} onValueChange={handleTabChange} className="w-full flex flex-col flex-1 min-h-0">
             <div className="px-6 pt-6 pb-4 flex-shrink-0">
-              <TabsList className="grid w-full grid-cols-8 bg-card p-1">
-                <TabsTrigger value="account" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
-                  Account
-                </TabsTrigger>
-                <TabsTrigger value="general" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
-                  General
-                </TabsTrigger>
-                <TabsTrigger value="notifications" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
-                  Notify
-                </TabsTrigger>
-                <TabsTrigger value="voice" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
-                  Voice
-                </TabsTrigger>
-                <TabsTrigger value="git" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
-                  Git
-                </TabsTrigger>
-                <TabsTrigger value="shortcuts" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
-                  Shortcuts
-                </TabsTrigger>
-                <TabsTrigger value="opencode" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
-                  OpenCode
-                </TabsTrigger>
-                <TabsTrigger value="providers" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
-                  Providers
-                </TabsTrigger>
-              </TabsList>
+               <TabsList className="grid w-full grid-cols-9 bg-card p-1">
+                 <TabsTrigger value="account" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   Account
+                 </TabsTrigger>
+                 <TabsTrigger value="general" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   General
+                 </TabsTrigger>
+                 <TabsTrigger value="notifications" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   Notify
+                 </TabsTrigger>
+                 <TabsTrigger value="voice" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   Voice
+                 </TabsTrigger>
+                 <TabsTrigger value="git" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   Git
+                 </TabsTrigger>
+                 <TabsTrigger value="shortcuts" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   Shortcuts
+                 </TabsTrigger>
+                 <TabsTrigger value="opencode" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   OpenCode
+                 </TabsTrigger>
+                 <TabsTrigger value="providers" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   Providers
+                 </TabsTrigger>
+                 <TabsTrigger value="tokens" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-muted-foreground transition-all duration-200">
+                   Tokens
+                 </TabsTrigger>
+               </TabsList>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
-              <div className="px-6 pb-6">
-                <TabsContent key="account" value="account" className="mt-0"><AccountSettings /></TabsContent>
-                <TabsContent key="general" value="general" className="mt-0"><GeneralSettings /></TabsContent>
-                <TabsContent key="notifications" value="notifications" className="mt-0"><NotificationSettings /></TabsContent>
-                <TabsContent key="voice" value="voice" className="mt-0"><VoiceSettings /></TabsContent>
-                <TabsContent key="git" value="git" className="mt-0"><GitSettings /></TabsContent>
-                <TabsContent key="shortcuts" value="shortcuts" className="mt-0"><KeyboardShortcuts /></TabsContent>
-                <TabsContent key="opencode" value="opencode" className="mt-0"><OpenCodeConfigManager /></TabsContent>
-                <TabsContent key="providers" value="providers" className="mt-0"><ProviderSettings /></TabsContent>
-              </div>
-            </div>
+             <div className="flex-1 overflow-y-auto">
+               <div className="px-6 pb-6">
+                 <TabsContent key="account" value="account" className="mt-0"><AccountSettings /></TabsContent>
+                 <TabsContent key="general" value="general" className="mt-0"><GeneralSettings /></TabsContent>
+                 <TabsContent key="notifications" value="notifications" className="mt-0"><NotificationSettings /></TabsContent>
+                 <TabsContent key="voice" value="voice" className="mt-0"><VoiceSettings /></TabsContent>
+                 <TabsContent key="git" value="git" className="mt-0"><GitSettings /></TabsContent>
+                 <TabsContent key="shortcuts" value="shortcuts" className="mt-0"><KeyboardShortcuts /></TabsContent>
+                 <TabsContent key="opencode" value="opencode" className="mt-0"><OpenCodeConfigManager /></TabsContent>
+                 <TabsContent key="providers" value="providers" className="mt-0"><ProviderSettings /></TabsContent>
+                 <TabsContent key="tokens" value="tokens" className="mt-0"><ApiTokensPanel /></TabsContent>
+               </div>
+             </div>
           </Tabs>
         </div>
 
@@ -185,14 +184,15 @@ export function SettingsDialog() {
                </div>
              )}
 
-             {mobileView === 'account' && <div key="account"><AccountSettings /></div>}
-             {mobileView === 'general' && <div key="general"><GeneralSettings /></div>}
-             {mobileView === 'notifications' && <div key="notifications"><NotificationSettings /></div>}
-             {mobileView === 'voice' && <div key="voice"><VoiceSettings /></div>}
-             {mobileView === 'git' && <div key="git"><GitSettings /></div>}
-             {mobileView === 'shortcuts' && <div key="shortcuts"><KeyboardShortcuts /></div>}
-             {mobileView === 'opencode' && <div key="opencode"><OpenCodeConfigManager /></div>}
-             {mobileView === 'providers' && <div key="providers"><ProviderSettings /></div>}
+              {mobileView === 'account' && <div key="account"><AccountSettings /></div>}
+              {mobileView === 'general' && <div key="general"><GeneralSettings /></div>}
+              {mobileView === 'notifications' && <div key="notifications"><NotificationSettings /></div>}
+              {mobileView === 'voice' && <div key="voice"><VoiceSettings /></div>}
+              {mobileView === 'git' && <div key="git"><GitSettings /></div>}
+              {mobileView === 'shortcuts' && <div key="shortcuts"><KeyboardShortcuts /></div>}
+              {mobileView === 'opencode' && <div key="opencode"><OpenCodeConfigManager /></div>}
+              {mobileView === 'providers' && <div key="providers"><ProviderSettings /></div>}
+              {mobileView === 'tokens' && <div key="tokens"><ApiTokensPanel /></div>}
            </div>
         </div>
       </DialogContent>

@@ -1,10 +1,14 @@
 import { defineConfig } from 'vitest/config'
+import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
     setupFiles: ['./test/setup.ts'],
+    alias: {
+      'bun:sqlite': fileURLToPath(new URL('./test/helpers/bun-sqlite-shim.ts', import.meta.url)),
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

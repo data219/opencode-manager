@@ -3,12 +3,25 @@ import { ENV } from '@opencode-manager/shared/config/env'
 import { parseJsonc } from '@opencode-manager/shared/utils'
 
 export const OPENCODE_SERVER_URL = `http://${ENV.OPENCODE.HOST}:${ENV.OPENCODE.PORT}`
+const OPENCODE_SERVER_PASSWORD = ENV.OPENCODE.SERVER_PASSWORD
+const OPENCODE_SERVER_USERNAME = ENV.OPENCODE.SERVER_USERNAME
+
+const OPENCODE_BASIC_AUTH = OPENCODE_SERVER_PASSWORD
+  ? `Basic ${Buffer.from(`${OPENCODE_SERVER_USERNAME}:${OPENCODE_SERVER_PASSWORD}`).toString('base64')}`
+  : ''
+
+export function withOpenCodeAuth(headers: Record<string, string> = {}): Record<string, string> {
+  if (OPENCODE_BASIC_AUTH) {
+    return { ...headers, Authorization: OPENCODE_BASIC_AUTH }
+  }
+  return headers
+}
 
 export async function setOpenCodeAuth(providerId: string, apiKey: string): Promise<boolean> {
   try {
     const response = await fetch(`${OPENCODE_SERVER_URL}/auth/${providerId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withOpenCodeAuth({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ type: 'api', key: apiKey }),
     })
     
@@ -29,6 +42,7 @@ export async function deleteOpenCodeAuth(providerId: string): Promise<boolean> {
   try {
     const response = await fetch(`${OPENCODE_SERVER_URL}/auth/${providerId}`, {
       method: 'DELETE',
+      headers: withOpenCodeAuth(),
     })
     
     if (response.ok) {
@@ -67,6 +81,15 @@ function getIssuePath(value: unknown): string {
   }
 
   if (typeof value === 'string' && value.length > 0) {
+    if (value.startsWith('/')) {
+      const pointerPath = value
+        .split('/')
+        .filter(Boolean)
+        .map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'))
+        .join('.')
+      return pointerPath || 'root'
+    }
+
     return value
   }
 
@@ -187,7 +210,7 @@ export async function patchOpenCodeConfig(config: Record<string, unknown>): Prom
   try {
     const response = await fetch(`${OPENCODE_SERVER_URL}/config`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withOpenCodeAuth({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(config),
     })
 
@@ -233,7 +256,7 @@ export async function patchOpenCodeConfig(config: Record<string, unknown>): Prom
     logger.info(`Retrying config patch after removing ${removedFields.length} problematic field(s): ${removedFields.join(', ')}`)
     const retryResponse = await fetch(`${OPENCODE_SERVER_URL}/config`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withOpenCodeAuth({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(cleanedConfig),
     })
 
@@ -264,41 +287,73 @@ export async function patchOpenCodeConfig(config: Record<string, unknown>): Prom
   }
 }
 
-export async function proxyRequest(request: Request) {
+export interface ProxyProjectService {
+  getBySlug: (slug: string) => { directory: string } | null
+}
+
+const HOP_BY_HOP_REQUEST_HEADERS = new Set(['host', 'connection', 'authorization'])
+const HOP_BY_HOP_RESPONSE_HEADERS = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length'])
+
+export async function proxyRequest(request: Request, projectService?: ProxyProjectService) {
   const url = new URL(request.url)
-  
+
   // Remove /api/opencode prefix from pathname before forwarding
   const cleanPathname = url.pathname.replace(/^\/api\/opencode/, '')
-  const targetUrl = `${OPENCODE_SERVER_URL}${cleanPathname}${url.search}`
-  
+  let targetUrl = `${OPENCODE_SERVER_URL}${cleanPathname}${url.search}`
+
   if (url.pathname.includes('/permissions/')) {
     logger.info(`Proxying permission request: ${url.pathname}${url.search} -> ${targetUrl}`)
   }
-  
+
+  // Handle project slug header translation
+  const slugHeader = request.headers.get('x-opencode-manager-project')
+  if (slugHeader && projectService) {
+    const project = projectService.getBySlug(slugHeader)
+    if (!project) {
+      return new Response('Unknown project', { status: 404 })
+    }
+    const targetUrlObj = new URL(targetUrl)
+    if (!targetUrlObj.searchParams.has('directory')) {
+      targetUrlObj.searchParams.set('directory', project.directory)
+    }
+    targetUrl = targetUrlObj.toString()
+  }
+
   try {
     const headers: Record<string, string> = {}
     request.headers.forEach((value, key) => {
-      if (!['host', 'connection'].includes(key.toLowerCase())) {
+      if (!HOP_BY_HOP_REQUEST_HEADERS.has(key.toLowerCase())) {
         headers[key] = value
       }
     })
 
-    const response = await fetch(targetUrl, {
+    const fetchOptions: RequestInit & { duplex?: string } = {
       method: request.method,
-      headers,
-      body: request.method !== 'GET' && request.method !== 'HEAD' ? await request.text() : undefined,
-    })
+      headers: withOpenCodeAuth(headers),
+    }
+
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      // Buffer the request body before forwarding. Streaming with `duplex: 'half'`
+      // is unreliable across runtimes (Bun vs Node) and breaks when upstream
+      // middleware has already touched the body. Buffering is safe for typical
+      // OpenCode payloads (JSON commands, small uploads).
+      const bodyBuffer = await request.arrayBuffer()
+      if (bodyBuffer.byteLength > 0) {
+        fetchOptions.body = bodyBuffer
+      }
+    }
+
+    const response = await fetch(targetUrl, fetchOptions)
 
     const responseHeaders: Record<string, string> = {}
-    const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length'])
     response.headers.forEach((value, key) => {
-      if (!skipHeaders.has(key.toLowerCase())) {
+      if (!HOP_BY_HOP_RESPONSE_HEADERS.has(key.toLowerCase())) {
         responseHeaders[key] = value
       }
     })
 
-    const body = await response.text()
-    return new Response(body, {
+    // Stream the response body for SSE support
+    return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
       headers: responseHeaders,
@@ -328,7 +383,7 @@ export async function proxyToOpenCodeWithDirectory(
   try {
     const response = await fetch(url.toString(), {
       method,
-      headers: headers || { 'Content-Type': 'application/json' },
+      headers: withOpenCodeAuth(headers || { 'Content-Type': 'application/json' }),
       body,
     })
     
@@ -369,7 +424,7 @@ export async function proxyMcpAuthStart(
   try {
     const response = await fetch(url.toString(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withOpenCodeAuth({ 'Content-Type': 'application/json' }),
     })
     
     const responseBody = await response.text()
@@ -400,7 +455,7 @@ export async function proxyMcpAuthAuthenticate(
   try {
     const response = await fetch(url.toString(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withOpenCodeAuth({ 'Content-Type': 'application/json' }),
     })
     
     const responseBody = await response.text()

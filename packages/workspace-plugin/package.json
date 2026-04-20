@@ -1,0 +1,27 @@
+{
+  "name": "@opencode-manager/workspace-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.14.0",
+    "@opencode-ai/sdk": ">=1.14.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.14.19",
+    "@opencode-ai/sdk": "1.14.19",
+    "@types/bun": "latest",
+    "typescript": "^5",
+    "vitest": "^3.2.4",
+    "zod": "^4.1.12"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "lint": "eslint . --ext .ts"
+  }
+}

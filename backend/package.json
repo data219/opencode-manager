@@ -26,6 +26,7 @@
     "hono": "^4.11.7",
     "jsonc-parser": "^3.3.1",
     "web-push": "^3.6.7",
+    "ws": "^8.20.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
@@ -35,6 +36,7 @@
     "@types/bun": "latest",
     "@types/eventsource": "^3.0.0",
     "@types/web-push": "^3.6.4",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
     "eslint": "^9.39.1",

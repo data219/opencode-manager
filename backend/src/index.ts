@@ -26,7 +26,6 @@ async function getAppVersion(): Promise<string> {
 }
 import { createProvidersRoutes } from './routes/providers'
 import { createOAuthRoutes } from './routes/oauth'
-import { createTitleRoutes } from './routes/title'
 import { createSSERoutes } from './routes/sse'
 import { createSSHRoutes } from './routes/ssh'
 import { createNotificationRoutes } from './routes/notifications'
@@ -47,6 +46,12 @@ import { migrateGlobalSkills } from './services/skills'
 import { getOpenCodeImportStatus, syncOpenCodeImport } from './services/opencode-import'
 import { OpenCodeConfigSchema } from '@opencode-manager/shared/schemas'
 import { parse as parseJsonc } from 'jsonc-parser'
+import { ApiTokenService } from './services/api-tokens'
+import { createApiTokenRoutes } from './routes/api-tokens'
+import { createWorkspacePluginRoutes } from './routes/workspace-plugin'
+import { attachWorkspacePluginWs } from './services/proxy-ws'
+import type { Server } from 'node:http'
+import { listRepos } from './db/queries'
 
 import { logger } from './utils/logger'
 import { 
@@ -79,7 +84,8 @@ app.use('/*', cors({
 
 const db = initializeDatabase(DB_PATH)
 const auth = createAuth(db)
-const requireAuth = createAuthMiddleware(auth)
+const apiTokenService = new ApiTokenService(db)
+const requireAuth = createAuthMiddleware(auth, apiTokenService, db)
 
 import { DEFAULT_AGENTS_MD } from './constants'
 
@@ -261,12 +267,13 @@ protectedApi.use('/*', requireAuth)
 
 protectedApi.route('/repos', createRepoRoutes(db, gitAuthService, scheduleService))
 protectedApi.route('/settings', createSettingsRoutes(db, gitAuthService))
+protectedApi.route('/settings/tokens', createApiTokenRoutes(apiTokenService))
+protectedApi.route('/workspace-plugin', createWorkspacePluginRoutes(db))
 protectedApi.route('/files', createFileRoutes())
 protectedApi.route('/providers', createProvidersRoutes())
 protectedApi.route('/oauth', createOAuthRoutes())
 protectedApi.route('/tts', createTTSRoutes(db))
 protectedApi.route('/stt', createSTTRoutes(db))
-protectedApi.route('/generate-title', createTitleRoutes())
 protectedApi.route('/sse', createSSERoutes())
 protectedApi.route('/ssh', createSSHRoutes(gitAuthService))
 protectedApi.route('/notifications', createNotificationRoutes(notificationService))
@@ -288,9 +295,19 @@ app.post('/api/opencode/mcp/:name/auth/authenticate', requireAuth, async (c) => 
   return proxyMcpAuthAuthenticate(serverName, directory)
 })
 
+const projectService: import('./services/proxy').ProxyProjectService = {
+  getBySlug: (slug: string) => {
+    const settings = new SettingsService(db).getSettings()
+    const repos = listRepos(db, settings.preferences.repoOrder)
+    const repo = repos.find((r) => r.id.toString() === slug)
+    if (!repo) return null
+    return { directory: repo.fullPath }
+  },
+}
+
 app.all('/api/opencode/*', requireAuth, async (c) => {
   const request = c.req.raw
-  return proxyRequest(request)
+  return proxyRequest(request, projectService)
 })
 
 const isProduction = ENV.SERVER.NODE_ENV === 'production'
@@ -388,10 +405,28 @@ const shutdown = async (signal: string) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port: PORT,
   hostname: HOST,
+}) as unknown as Server
+
+import { OPENCODE_SERVER_URL } from './services/proxy'
+
+attachWorkspacePluginWs(server, {
+  upstreamBaseUrl: OPENCODE_SERVER_URL,
+  verifyAuth: async (headers) => {
+    const authHeader = headers.get('authorization')
+    if (authHeader?.startsWith('Bearer ')) {
+      const raw = authHeader.slice(7).trim()
+      const verified = apiTokenService.verify(raw)
+      if (verified) {
+        return { userId: verified.userId, scope: verified.scope }
+      }
+    }
+    return null
+  },
+  projectService,
 })
 
 logger.info(`🚀 OpenCode WebUI API running on http://${HOST}:${PORT}`)
