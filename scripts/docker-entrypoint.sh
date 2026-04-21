@@ -75,8 +75,11 @@ if [ -z "$AUTH_SECRET" ]; then
   exit 1
 fi
 
-mkdir -p /app/data /workspace /home/node/.cache /home/node/.opencode
+mkdir -p /app/data /workspace /home/node/.cache /home/node/.opencode \
+  /home/node/.config/opencode /home/node/.config/opencode/skills /home/node/.config/gh
 chown -R node:node /app/data /workspace /home/node
+
+/scripts/docker-init.sh
 
 exec runuser -u node -- "$@"
 

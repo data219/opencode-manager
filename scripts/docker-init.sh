@@ -1,0 +1,113 @@
+#!/bin/bash
+# docker-init.sh — Config seeding with version-based re-seeding
+# Adapted from opencode-docker for opencode-manager (node user)
+set -euo pipefail
+trap 'echo "ERROR: docker-init.sh failed at line $LINENO" >&2' ERR
+
+DEFAULTS_DIR="${DEFAULTS_DIR:-/opt/opencode-defaults}"
+CONFIG_DIR="${CONFIG_DIR:-/home/node/.config/opencode}"
+CONFIG_VERSION_FILE="$CONFIG_DIR/.opencode-docker-config-version"
+IMAGE_VERSION_FILE="$DEFAULTS_DIR/.opencode-docker-config-version"
+
+# Fix ownership of the persisted config tree BEFORE seeding.
+# Docker creates bind mount targets as root when they don't exist on host.
+if [ "$(id -u)" = "0" ]; then
+  if [ -d "/home/node/.config" ] && [ "$(stat -c %U /home/node/.config 2>/dev/null)" = "root" ]; then
+    chown -R node:node /home/node/.config
+  fi
+
+  for dir in .config .config/opencode .config/opencode/skills .config/gh; do
+    dir_path="/home/node/$dir"
+    if [ -d "$dir_path" ] && [ "$(stat -c %U "$dir_path" 2>/dev/null)" = "root" ]; then
+      chown -R node:node "$dir_path"
+    fi
+  done
+fi
+
+mkdir -p "$CONFIG_DIR"
+
+# Determine if we need to seed configs.
+# We seed if:
+#   1. Config dir is empty (first start with empty volume), OR
+#   2. Image has a newer config version than what's in the volume
+NEED_SEED=false
+if [ -z "$(ls -A "$CONFIG_DIR" 2>/dev/null)" ]; then
+  NEED_SEED=true
+elif [ -f "$IMAGE_VERSION_FILE" ]; then
+  IMAGE_VERSION=$(cat "$IMAGE_VERSION_FILE" 2>/dev/null || echo "0")
+  VOLUME_VERSION=$(cat "$CONFIG_VERSION_FILE" 2>/dev/null || echo "0")
+  if [ "$IMAGE_VERSION" -gt "$VOLUME_VERSION" ] 2>/dev/null; then
+    echo "Config version upgraded: $VOLUME_VERSION → $IMAGE_VERSION. Re-seeding configs..."
+    NEED_SEED=true
+  fi
+fi
+
+if [ "$NEED_SEED" = "true" ] && [ -d "$DEFAULTS_DIR" ]; then
+  # Re-seed managed configs (version-tracked), but preserve user customizations.
+  # Files with ".managed" suffix are always overwritten from image defaults.
+  # The ".managed" suffix is stripped when copying to the config dir.
+  # Regular files are only copied if they don't exist yet.
+  shopt -s dotglob nullglob
+  for item in "$DEFAULTS_DIR"/*; do
+    [ -e "$item" ] || continue
+    base="$(basename "$item")"
+    if [[ "$base" == *.managed ]]; then
+      # Strip .managed suffix for the target filename
+      target_name="${base%.managed}"
+      target="$CONFIG_DIR/$target_name"
+      cp -a -- "$item" "$target"
+    else
+      # Seed non-managed files only if they don't exist yet (first start)
+      target="$CONFIG_DIR/$base"
+      if [ ! -e "$target" ]; then
+        cp -a -- "$item" "$target"
+      fi
+    fi
+  done
+  shopt -u dotglob nullglob
+
+  # Update version marker in volume
+  if [ -f "$IMAGE_VERSION_FILE" ]; then
+    cp -a -- "$IMAGE_VERSION_FILE" "$CONFIG_VERSION_FILE"
+  fi
+fi
+
+# Seed OmO agent config if not yet present (OmO install writes to temp dir during build).
+# Only copy if oh-my-openagent.jsonc doesn't exist yet — don't overwrite user customizations.
+if [ ! -f "$CONFIG_DIR/oh-my-openagent.jsonc" ] && [ -f "$DEFAULTS_DIR/oh-my-openagent-omo.json" ]; then
+  cp -a -- "$DEFAULTS_DIR/oh-my-openagent-omo.json" "$CONFIG_DIR/oh-my-openagent.jsonc"
+fi
+
+# --- Sync bootstrap skills ---
+if [ -d "$DEFAULTS_DIR/skills" ]; then
+  SKILLS_DIR="/home/node/.config/opencode/skills"
+  mkdir -p "$SKILLS_DIR"
+  if [ "${FORCE_SKILL_SYNC:-false}" = "true" ]; then
+    # Full reset: remove all skills and re-copy from bootstrap
+    rm -rf "${SKILLS_DIR:?}/"*
+    cp -a "$DEFAULTS_DIR/skills/." "$SKILLS_DIR/"
+  else
+    # Merge: copy bootstrap skills, but don't overwrite existing user modifications
+    for skill_dir in "$DEFAULTS_DIR/skills"/*; do
+      [ -d "${skill_dir}" ] || continue
+      target_dir="$SKILLS_DIR/$(basename "${skill_dir}")"
+      if [ ! -d "${target_dir}" ]; then
+        # New skill: copy entirely
+        cp -a "${skill_dir}" "$target_dir"
+      else
+        # Existing skill: only add missing files, preserve user changes
+        cp -an "${skill_dir}/." "$target_dir/"
+      fi
+    done
+  fi
+
+  # Preserve the bind mount owner instead of the image source owner.
+  # This keeps the host user able to modify and delete synced skills even
+  # when docker-init.sh runs as root inside the container.
+  if [ "$(id -u)" = "0" ] && [ -d "$SKILLS_DIR" ]; then
+    skills_owner="$(stat -c '%u:%g' "$SKILLS_DIR" 2>/dev/null || true)"
+    if [ -n "$skills_owner" ]; then
+      chown -R "$skills_owner" "$SKILLS_DIR"
+    fi
+  fi
+fi

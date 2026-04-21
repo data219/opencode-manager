@@ -59,8 +59,9 @@ FROM base AS runner
 
 ARG UV_VERSION=latest
 ARG OPENCODE_VERSION=latest
+ARG OMO_VERSION=latest
 
-RUN echo "Installing uv=${UV_VERSION} opencode=${OPENCODE_VERSION}" && \
+RUN echo "Installing uv=${UV_VERSION} opencode=${OPENCODE_VERSION} omo=${OMO_VERSION}" && \
     curl -LsSf https://astral.sh/uv/install.sh | UV_NO_MODIFY_PATH=1 sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv && \
     mv /root/.local/bin/uvx /usr/local/bin/uvx && \
@@ -72,7 +73,12 @@ RUN echo "Installing uv=${UV_VERSION} opencode=${OPENCODE_VERSION}" && \
     fi && \
     mv /root/.opencode /opt/opencode && \
     chmod -R 755 /opt/opencode && \
-    ln -s /opt/opencode/bin/opencode /usr/local/bin/opencode
+    ln -s /opt/opencode/bin/opencode /usr/local/bin/opencode && \
+    mkdir -p /opt/opencode-defaults \
+    && HOME=/tmp/omo-install bun x oh-my-opencode@${OMO_VERSION} install \
+       --no-tui --zai-coding-plan=yes --claude=no --openai=no --gemini=yes --copilot=no \
+    && cp /tmp/omo-install/.config/opencode/oh-my-opencode.json /opt/opencode-defaults/oh-my-openagent-omo.json 2>/dev/null || true \
+    && rm -rf /tmp/omo-install
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
@@ -91,10 +97,22 @@ RUN mkdir -p /app/backend/node_modules/@opencode-manager && \
     ln -s /app/shared /app/backend/node_modules/@opencode-manager/shared
 
 COPY scripts/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+COPY scripts/docker-init.sh /scripts/docker-init.sh
+RUN chmod +x /docker-entrypoint.sh /scripts/docker-init.sh
 
-RUN mkdir -p /workspace /app/data /home/node/.cache /home/node/.opencode && \
-    chown -R node:node /workspace /app/data /home/node
+COPY bootstrap/config/opencode.json /opt/opencode-defaults/opencode.json.managed
+COPY bootstrap/config/oh-my-openagent.jsonc /opt/opencode-defaults/oh-my-openagent.jsonc.managed
+COPY bootstrap/config/.opencode-docker-config-version /opt/opencode-defaults/.opencode-docker-config-version
+COPY bootstrap/skills/ /opt/opencode-defaults/skills/
+
+RUN mkdir -p /workspace /app/data /home/node/.cache /home/node/.opencode \
+    /home/node/.config/opencode /home/node/.config/opencode/skills /home/node/.config/gh \
+    && cp -a /opt/opencode-defaults/opencode.json.managed /home/node/.config/opencode/opencode.json \
+    && cp -a /opt/opencode-defaults/oh-my-openagent.jsonc.managed /home/node/.config/opencode/oh-my-openagent.jsonc \
+    && cp -a /opt/opencode-defaults/.opencode-docker-config-version /home/node/.config/opencode/.opencode-docker-config-version \
+    && cp -a /opt/opencode-defaults/oh-my-openagent-omo.json /home/node/.config/opencode/oh-my-openagent-omo.json 2>/dev/null || true \
+    && cp -a /opt/opencode-defaults/skills/. /home/node/.config/opencode/skills/ \
+    && chown -R node:node /workspace /app/data /home/node /opt/opencode-defaults
 
 EXPOSE 5003 5100 5101 5102 5103
 

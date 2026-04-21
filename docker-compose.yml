@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - OPENCODE_VERSION=${OPENCODE_VERSION:-latest}
+        - OMO_VERSION=${OMO_VERSION:-latest}
     container_name: opencode-manager
     ports:
       - "5003:5003"
@@ -24,7 +27,7 @@ services:
       - MAX_FILE_SIZE_MB=50
       - MAX_UPLOAD_SIZE_MB=50
       - DEBUG=false
-      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET is required}
       - AUTH_TRUSTED_ORIGINS=${AUTH_TRUSTED_ORIGINS:-http://localhost:5003}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
@@ -42,9 +45,14 @@ services:
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
+      - ZHIPU_API_KEY=${ZHIPU_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - FORCE_SKILL_SYNC=${FORCE_SKILL_SYNC:-false}
     volumes:
-      - opencode-workspace:/workspace
-      - opencode-data:/app/data
+      - ${OCM_WORKSPACE_DIR:-./data/workspace}:/workspace
+      - ${OCM_DATA_DIR:-./data/app-data}:/app/data
+      - ${OCM_CONFIG_DIR:-./data/config}:/home/node/.config
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5003/api/health"]
@@ -52,9 +60,3 @@ services:
       timeout: 3s
       retries: 3
       start_period: 40s
-
-volumes:
-  opencode-workspace:
-    driver: local
-  opencode-data:
-    driver: local
