@@ -42,6 +42,7 @@ services:
       - "5101:5101"
       - "5102:5102"
       - "5103:5103"
+      - "5551:5551"
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - HOST=0.0.0.0
@@ -156,6 +157,15 @@ ports:
   - "5101:5101"
   - "5102:5102"
   - "5103:5103"
+```
+
+### OpenCode Server Port
+
+The OpenCode server runs on port 5551 (managed by the backend):
+
+```yaml
+ports:
+  - "5551:5551"
 ```
 
 Configure your dev server to use one of these ports:

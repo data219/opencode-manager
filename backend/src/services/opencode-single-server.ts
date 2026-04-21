@@ -23,6 +23,7 @@ import { patchOpenCodeConfig } from './proxy'
 
 const OPENCODE_SERVER_PORT = ENV.OPENCODE.PORT
 const OPENCODE_SERVER_HOST = ENV.OPENCODE.HOST
+const OPENCODE_SERVER_BIND_HOST = process.env.OPENCODE_HOST || '0.0.0.0'
 const OPENCODE_SERVER_PUBLIC_URL = ENV.OPENCODE.PUBLIC_URL
 const OPENCODE_SERVER_PASSWORD = ENV.OPENCODE.SERVER_PASSWORD
 const OPENCODE_SERVER_USERNAME = ENV.OPENCODE.SERVER_USERNAME
@@ -251,7 +252,7 @@ class OpenCodeServerManager {
       [
         'serve',
         '--port', OPENCODE_SERVER_PORT.toString(),
-        '--hostname', OPENCODE_SERVER_HOST,
+        '--hostname', OPENCODE_SERVER_BIND_HOST,
         '--print-logs',
         '--log-level', 'DEBUG',
       ],
