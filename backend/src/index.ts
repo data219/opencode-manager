@@ -48,7 +48,7 @@ import { OpenCodeConfigSchema } from '@opencode-manager/shared/schemas'
 import { parse as parseJsonc } from 'jsonc-parser'
 import { ApiTokenService } from './services/api-tokens'
 import { createApiTokenRoutes } from './routes/api-tokens'
-import { createWorkspacePluginRoutes } from './routes/workspace-plugin'
+import { createWorkspacePluginRoutes, createProjectService } from './routes/workspace-plugin'
 import { attachWorkspacePluginWs } from './services/proxy-ws'
 import type { Server } from 'node:http'
 
@@ -294,9 +294,11 @@ app.post('/api/opencode/mcp/:name/auth/authenticate', requireAuth, async (c) => 
   return proxyMcpAuthAuthenticate(serverName, directory)
 })
 
+const opencodeProjectService = createProjectService(db)
+
 app.all('/api/opencode/*', requireAuth, async (c) => {
   const request = c.req.raw
-  return proxyRequest(request)
+  return proxyRequest(request, opencodeProjectService)
 })
 
 const isProduction = ENV.SERVER.NODE_ENV === 'production'
@@ -417,7 +419,15 @@ const verifyPluginBearerAuth = async (headers: Headers): Promise<{ userId: strin
 attachWorkspacePluginWs(server, {
   upstreamBaseUrl: OPENCODE_SERVER_URL,
   verifyAuth: verifyPluginBearerAuth,
+  projectService: opencodeProjectService,
   pathPrefix: '/api/opencode',
+})
+
+attachWorkspacePluginWs(server, {
+  upstreamBaseUrl: OPENCODE_SERVER_URL,
+  verifyAuth: verifyPluginBearerAuth,
+  projectService: opencodeProjectService,
+  pathPrefix: '/api/workspace-plugin/opencode',
 })
 
 logger.info(`🚀 OpenCode WebUI API running on http://${HOST}:${PORT}`)

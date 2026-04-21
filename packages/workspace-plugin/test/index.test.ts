@@ -104,21 +104,35 @@ describe('adaptor.target', () => {
     token: 'tok-abc',
   }
 
-  it('returns { type: "local", directory: project.directory }', async () => {
+  it('returns remote target pointing at manager proxy for the project slug', async () => {
     const { makeAdaptor } = await import('../src/index.js')
     const project = { slug: '42', name: 'Test Project', directory: '/workspace/repos/test' }
     const adaptor = makeAdaptor(baseCfg, project)
     const result = adaptor.target(sampleInfo)
-    expect(result.type).toBe('local')
-    expect(result.directory).toBe('/workspace/repos/test')
+    expect(result.type).toBe('remote')
+    if (result.type !== 'remote') throw new Error('expected remote target')
+    expect(result.url).toBe('http://manager.test:5003/api/workspace-plugin/opencode/42')
+    expect(result.headers).toEqual({ Authorization: 'Bearer tok-abc' })
   })
 
-  it('returns directory from project, not from info', async () => {
+  it('url-encodes slugs with special characters', async () => {
     const { makeAdaptor } = await import('../src/index.js')
-    const project = { slug: '42', name: 'Test Project', directory: '/workspace/repos/test' }
+    const project = { slug: 'my repo/branch', name: 'Test Project', directory: '/workspace/repos/test' }
     const adaptor = makeAdaptor(baseCfg, project)
     const result = adaptor.target(sampleInfo)
-    expect(result.directory).toBe('/workspace/repos/test')
+    if (result.type !== 'remote') throw new Error('expected remote target')
+    expect(result.url).toBe('http://manager.test:5003/api/workspace-plugin/opencode/my%20repo%2Fbranch')
+  })
+
+  it('strips trailing slash from the manager base url', async () => {
+    const { makeAdaptor } = await import('../src/index.js')
+    const adaptor = makeAdaptor(
+      { url: 'http://manager.test:5003/', token: 'tok-abc' },
+      { slug: '42', name: 'Test Project', directory: '/workspace/repos/test' },
+    )
+    const result = adaptor.target(sampleInfo)
+    if (result.type !== 'remote') throw new Error('expected remote target')
+    expect(result.url).toBe('http://manager.test:5003/api/workspace-plugin/opencode/42')
   })
 })
 

@@ -319,11 +319,26 @@ const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   'content-length',
 ])
 
-export async function proxyRequest(request: Request) {
+export interface ProxyProjectService {
+  getBySlug: (slug: string) => { directory: string } | null
+}
+
+export async function proxyRequest(request: Request, projectService?: ProxyProjectService) {
   const url = new URL(request.url)
 
   const cleanPathname = url.pathname.replace(/^\/api\/opencode/, '')
-  const targetUrl = `${OPENCODE_SERVER_URL}${cleanPathname}${url.search}`
+  let targetUrl = `${OPENCODE_SERVER_URL}${cleanPathname}${url.search}`
+
+  const slugHeader = request.headers.get('x-opencode-manager-project')
+  if (slugHeader && projectService) {
+    const project = projectService.getBySlug(slugHeader)
+    if (!project) {
+      return new Response('Unknown project', { status: 404 })
+    }
+    const targetUrlObj = new URL(targetUrl)
+    targetUrlObj.searchParams.set('directory', project.directory)
+    targetUrl = targetUrlObj.toString()
+  }
 
   try {
     const headers: Record<string, string> = {}

@@ -10,9 +10,14 @@ interface AuthResult {
   scope: string
 }
 
+interface ProjectService {
+  getBySlug: (slug: string) => { directory: string } | null
+}
+
 export interface WebSocketProxyOptions {
   upstreamBaseUrl: string
   verifyAuth: (headers: Headers) => Promise<AuthResult | null>
+  projectService?: ProjectService
   pathPrefix?: string
 }
 
@@ -102,7 +107,19 @@ export function attachWorkspacePluginWs(server: Server, options: WebSocketProxyO
       }
 
       const remainingPath = url.pathname.slice(pathPrefix.length) || '/'
-      const targetUrl = `${options.upstreamBaseUrl}${remainingPath}${url.search}`
+      let targetUrl = `${options.upstreamBaseUrl}${remainingPath}${url.search}`
+
+      const slugHeader = headers.get('x-opencode-manager-project')
+      if (slugHeader && options.projectService) {
+        const project = options.projectService.getBySlug(slugHeader)
+        if (!project) {
+          rejectUpgrade(socket, 404, 'Not Found')
+          return
+        }
+        const targetUrlObj = new URL(targetUrl)
+        targetUrlObj.searchParams.set('directory', project.directory)
+        targetUrl = targetUrlObj.toString()
+      }
 
       const upstreamWsUrl = (() => {
         const u = new URL(targetUrl)
