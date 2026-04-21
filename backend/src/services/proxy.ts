@@ -314,9 +314,7 @@ export async function proxyRequest(request: Request, projectService?: ProxyProje
       return new Response('Unknown project', { status: 404 })
     }
     const targetUrlObj = new URL(targetUrl)
-    if (!targetUrlObj.searchParams.has('directory')) {
-      targetUrlObj.searchParams.set('directory', project.directory)
-    }
+    targetUrlObj.searchParams.set('directory', project.directory)
     targetUrl = targetUrlObj.toString()
   }
 

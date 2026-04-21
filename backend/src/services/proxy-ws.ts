@@ -117,9 +117,7 @@ export function attachWorkspacePluginWs(server: Server, options: WebSocketProxyO
           return
         }
         const targetUrlObj = new URL(targetUrl)
-        if (!targetUrlObj.searchParams.has('directory')) {
-          targetUrlObj.searchParams.set('directory', project.directory)
-        }
+        targetUrlObj.searchParams.set('directory', project.directory)
         targetUrl = targetUrlObj.toString()
       }
 
