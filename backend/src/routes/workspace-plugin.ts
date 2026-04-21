@@ -73,8 +73,14 @@ export function createWorkspacePluginRoutes(db: Database) {
   })
 
   app.all('/opencode/:slug/*', async (c) => {
+    const slug = c.req.param('slug')
+    const inbound = c.req.raw
+    const inboundUrl = new URL(inbound.url)
+    logger.info(`workspace-plugin proxy inbound: ${inbound.method} ${inboundUrl.pathname}${inboundUrl.search} slug=${slug}`)
+
     const session = c.get('session')
     if (!session) {
+      logger.warn(`workspace-plugin proxy: unauthorized (no session) slug=${slug} path=${inboundUrl.pathname}`)
       return c.json({ error: 'Unauthorized' }, 401)
     }
 
@@ -83,10 +89,6 @@ export function createWorkspacePluginRoutes(db: Database) {
       logger.warn(`Token with scope '${tokenScope}' attempted to access workspace-plugin opencode proxy`)
       return c.json({ error: 'Forbidden: insufficient token scope' }, 403)
     }
-
-    const slug = c.req.param('slug')
-    const inbound = c.req.raw
-    const inboundUrl = new URL(inbound.url)
 
     const rewritten = new URL(inbound.url)
     const prefix = `/api/workspace-plugin/opencode/${slug}`
@@ -102,6 +104,7 @@ export function createWorkspacePluginRoutes(db: Database) {
       duplex: 'half',
     })
 
+    logger.info(`workspace-plugin proxy forward: ${forwarded.method} ${rewritten.pathname}${rewritten.search} -> upstream opencode (slug=${slug})`)
     return proxyRequest(forwarded, projectService)
   })
 

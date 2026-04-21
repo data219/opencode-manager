@@ -50,7 +50,9 @@ export function makeAdaptor(cfg: { url: string; token: string }, project: Manage
 export const OpencodeManagerWorkspacePlugin: Plugin = async ({ experimental_workspace }, options) => {
   try {
     const cfg = resolveConfig(options)
-    pluginLogger.info(`plugin.init url=${cfg.url}`)
+    pluginLogger.info(
+      `plugin.init url=${cfg.url} env.OPENCODE_EXPERIMENTAL_WORKSPACES=${process.env.OPENCODE_EXPERIMENTAL_WORKSPACES ?? "unset"} env.OPENCODE_EXPERIMENTAL=${process.env.OPENCODE_EXPERIMENTAL ?? "unset"}`,
+    )
     const client = new ManagerClient(cfg.url, cfg.token)
     const projects = await client.listProjects()
     pluginLogger.info(`plugin.init loaded ${projects.length} project(s)`)

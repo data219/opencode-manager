@@ -432,11 +432,4 @@ attachWorkspacePluginWs(server, {
   pathPrefix: '/api/opencode',
 })
 
-attachWorkspacePluginWs(server, {
-  upstreamBaseUrl: OPENCODE_SERVER_URL,
-  verifyAuth: verifyPluginBearerAuth,
-  projectService,
-  pathPrefix: '/api/workspace-plugin/opencode',
-})
-
 logger.info(`🚀 OpenCode WebUI API running on http://${HOST}:${PORT}`)
