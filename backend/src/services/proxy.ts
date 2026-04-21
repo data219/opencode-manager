@@ -288,35 +288,42 @@ export async function patchOpenCodeConfig(config: Record<string, unknown>): Prom
   }
 }
 
-export interface ProxyProjectService {
-  getBySlug: (slug: string) => { directory: string } | null
-}
+const HOP_BY_HOP_REQUEST_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'proxy-connection',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'host',
+  'authorization',
+  'accept-encoding',
+  'x-opencode-directory',
+  'x-opencode-workspace',
+])
 
-const HOP_BY_HOP_REQUEST_HEADERS = new Set(['host', 'connection', 'authorization'])
-const HOP_BY_HOP_RESPONSE_HEADERS = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length'])
+const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'proxy-connection',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'content-encoding',
+  'content-length',
+])
 
-export async function proxyRequest(request: Request, projectService?: ProxyProjectService) {
+export async function proxyRequest(request: Request) {
   const url = new URL(request.url)
 
-  // Remove /api/opencode prefix from pathname before forwarding
   const cleanPathname = url.pathname.replace(/^\/api\/opencode/, '')
-  let targetUrl = `${OPENCODE_SERVER_URL}${cleanPathname}${url.search}`
-
-  if (url.pathname.includes('/permissions/')) {
-    logger.info(`Proxying permission request: ${url.pathname}${url.search} -> ${targetUrl}`)
-  }
-
-  // Handle project slug header translation
-  const slugHeader = request.headers.get('x-opencode-manager-project')
-  if (slugHeader && projectService) {
-    const project = projectService.getBySlug(slugHeader)
-    if (!project) {
-      return new Response('Unknown project', { status: 404 })
-    }
-    const targetUrlObj = new URL(targetUrl)
-    targetUrlObj.searchParams.set('directory', project.directory)
-    targetUrl = targetUrlObj.toString()
-  }
+  const targetUrl = `${OPENCODE_SERVER_URL}${cleanPathname}${url.search}`
 
   try {
     const headers: Record<string, string> = {}
@@ -326,6 +333,8 @@ export async function proxyRequest(request: Request, projectService?: ProxyProje
       }
     })
 
+    headers['accept-encoding'] = 'identity'
+
     const fetchOptions: RequestInit & { duplex?: string } = {
       method: request.method,
       headers: withOpenCodeAuth(headers),
@@ -333,17 +342,16 @@ export async function proxyRequest(request: Request, projectService?: ProxyProje
     }
 
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      // Buffer the request body before forwarding. Streaming with `duplex: 'half'`
-      // is unreliable across runtimes (Bun vs Node) and breaks when upstream
-      // middleware has already touched the body. Buffering is safe for typical
-      // OpenCode payloads (JSON commands, small uploads).
       const bodyBuffer = await request.arrayBuffer()
       if (bodyBuffer.byteLength > 0) {
         fetchOptions.body = bodyBuffer
       }
     }
 
+    logger.debug(`proxy fetch start: ${request.method} ${targetUrl}`)
+    const fetchStart = Date.now()
     const response = await fetch(targetUrl, fetchOptions)
+    logger.debug(`proxy fetch done: ${request.method} ${targetUrl} status=${response.status} ms=${Date.now() - fetchStart}`)
 
     const responseHeaders: Record<string, string> = {}
     response.headers.forEach((value, key) => {
@@ -352,7 +360,6 @@ export async function proxyRequest(request: Request, projectService?: ProxyProje
       }
     })
 
-    // Stream the response body for SSE support
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,

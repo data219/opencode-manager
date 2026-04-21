@@ -248,7 +248,13 @@ class OpenCodeServerManager {
 
     this.serverProcess = spawn(
       'opencode',
-      ['serve', '--port', OPENCODE_SERVER_PORT.toString(), '--hostname', OPENCODE_SERVER_HOST],
+      [
+        'serve',
+        '--port', OPENCODE_SERVER_PORT.toString(),
+        '--hostname', OPENCODE_SERVER_HOST,
+        '--print-logs',
+        '--log-level', 'DEBUG',
+      ],
       {
         cwd: openCodeServerDirectory,
         detached: !isDevelopment,
@@ -275,10 +281,18 @@ class OpenCodeServerManager {
 
     if (!isDevelopment && this.serverProcess.stderr) {
       this.serverProcess.stderr.on('data', (data) => {
-        stderrOutput += data.toString()
+        const chunk = data.toString()
+        process.stderr.write(chunk)
+        stderrOutput += chunk
         if (stderrOutput.length > MAX_STDERR_SIZE) {
           stderrOutput = stderrOutput.slice(-MAX_STDERR_SIZE)
         }
+      })
+    }
+
+    if (!isDevelopment && this.serverProcess.stdout) {
+      this.serverProcess.stdout.on('data', (data) => {
+        process.stdout.write(data)
       })
     }
 

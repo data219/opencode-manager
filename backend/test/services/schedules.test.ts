@@ -1108,4 +1108,36 @@ describe('ScheduleRunner', () => {
     expect(mockCronStop).toHaveBeenCalled()
     expect(mockCronInstances).toHaveLength(2)
   })
+
+  it('keeps runner start idempotent when called multiple times', async () => {
+    const mockJob: ScheduleJob = {
+      id: 6,
+      repoId: 10,
+      name: 'Idempotent Start',
+      description: null,
+      enabled: true,
+      scheduleMode: 'interval',
+      intervalMinutes: 60,
+      cronExpression: null,
+      timezone: null,
+      agentSlug: null,
+      prompt: 'Test',
+      model: null,
+      skillMetadata: null,
+      nextRunAt: Date.now(),
+      lastRunAt: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    mocks.listRunningScheduleRuns.mockReturnValue([])
+    mocks.listEnabledScheduleJobs.mockReturnValue([mockJob])
+
+    const service = new ScheduleService({} as never)
+    const runner = new ScheduleRunner(service)
+    await runner.start()
+    await runner.start()
+
+    expect(mockCronInstances).toHaveLength(1)
+    expect(mockCronStop).not.toHaveBeenCalled()
+  })
 })

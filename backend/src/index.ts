@@ -51,7 +51,6 @@ import { createApiTokenRoutes } from './routes/api-tokens'
 import { createWorkspacePluginRoutes } from './routes/workspace-plugin'
 import { attachWorkspacePluginWs } from './services/proxy-ws'
 import type { Server } from 'node:http'
-import { listRepos } from './db/queries'
 
 import { logger } from './utils/logger'
 import { 
@@ -295,19 +294,9 @@ app.post('/api/opencode/mcp/:name/auth/authenticate', requireAuth, async (c) => 
   return proxyMcpAuthAuthenticate(serverName, directory)
 })
 
-const projectService: import('./services/proxy').ProxyProjectService = {
-  getBySlug: (slug: string) => {
-    const settings = new SettingsService(db).getSettings()
-    const repos = listRepos(db, settings.preferences.repoOrder)
-    const repo = repos.find((r) => r.id.toString() === slug)
-    if (!repo) return null
-    return { directory: repo.fullPath }
-  },
-}
-
 app.all('/api/opencode/*', requireAuth, async (c) => {
   const request = c.req.raw
-  return proxyRequest(request, projectService)
+  return proxyRequest(request)
 })
 
 const isProduction = ENV.SERVER.NODE_ENV === 'production'
@@ -428,7 +417,6 @@ const verifyPluginBearerAuth = async (headers: Headers): Promise<{ userId: strin
 attachWorkspacePluginWs(server, {
   upstreamBaseUrl: OPENCODE_SERVER_URL,
   verifyAuth: verifyPluginBearerAuth,
-  projectService,
   pathPrefix: '/api/opencode',
 })
 

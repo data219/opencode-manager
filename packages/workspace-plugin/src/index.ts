@@ -1,9 +1,14 @@
-import type { Plugin, WorkspaceAdaptor, WorkspaceInfo } from "@opencode-ai/plugin"
+import type { Plugin, PluginInput, WorkspaceAdaptor, WorkspaceInfo } from "@opencode-ai/plugin"
 import { ManagerClient } from "./client.js"
 import { pluginLogger } from "./logger.js"
 import { PluginOptionsSchema, type ManagerProject } from "./types.js"
 
-export function resolveConfig(options: unknown): { url: string; token: string } {
+export interface ResolvedConfig {
+  url: string
+  token: string
+}
+
+export function resolveConfig(options: unknown): ResolvedConfig {
   const parsed = PluginOptionsSchema.parse(options ?? {})
   const url = parsed.url ?? process.env.OPENCODE_MANAGER_URL
   const token = parsed.token ?? process.env.OPENCODE_MANAGER_TOKEN
@@ -12,55 +17,64 @@ export function resolveConfig(options: unknown): { url: string; token: string } 
   return { url, token }
 }
 
-export function makeAdaptor(cfg: { url: string; token: string }, project: ManagerProject): WorkspaceAdaptor {
+export function makeAdaptor(cfg: ResolvedConfig, project: ManagerProject): WorkspaceAdaptor {
   return {
     name: `Manager: ${project.name}`,
-    description: `Connect to the "${project.name}" project on opencode-manager at ${cfg.url}`,
+    description: `Connect to the "${project.name}" project`,
     configure(info: WorkspaceInfo) {
-      const result = { ...info, name: project.name, directory: project.directory, extra: { slug: project.slug } }
-      pluginLogger.info(
-        `adaptor.configure slug=${project.slug} input=${JSON.stringify(info)} output=${JSON.stringify(result)}`,
-      )
-      return result
+      pluginLogger.info(`adaptor.configure slug=${project.slug} workspaceID=${info.id} dir=${project.directory}`)
+      return {
+        ...info,
+        name: project.name,
+        directory: project.directory,
+        extra: { slug: project.slug },
+      }
     },
-    async create(info, env) {
-      pluginLogger.info(
-        `adaptor.create slug=${project.slug} info=${JSON.stringify(info)} env_keys=${Object.keys(env ?? {}).join(",")}`,
-      )
+    async create(info) {
+      pluginLogger.info(`adaptor.create slug=${project.slug} workspaceID=${info.id} dir=${project.directory}`)
     },
     async remove(info) {
-      pluginLogger.info(`adaptor.remove slug=${project.slug} info=${JSON.stringify(info)}`)
+      pluginLogger.info(`adaptor.remove slug=${project.slug} workspaceID=${info.id}`)
     },
     target(info) {
-      const base = cfg.url.replace(/\/$/, "")
-      const url = `${base}/api/workspace-plugin/opencode/${encodeURIComponent(project.slug)}`
-      const result = {
-        type: "remote" as const,
-        url,
-        headers: { Authorization: `Bearer ${cfg.token}` },
-      }
-      pluginLogger.info(
-        `adaptor.target slug=${project.slug} input=${JSON.stringify(info)} output=${JSON.stringify({ type: result.type, url: result.url })}`,
-      )
-      return result
+      pluginLogger.info(`adaptor.target slug=${project.slug} workspaceID=${info.id} dir=${project.directory}`)
+      return { type: "local" as const, directory: project.directory }
     },
   }
 }
 
-export const OpencodeManagerWorkspacePlugin: Plugin = async ({ experimental_workspace }, options) => {
+const prewarmed = new Set<string>()
+
+async function prewarmProject(input: PluginInput, project: ManagerProject): Promise<void> {
+  if (prewarmed.has(project.directory)) return
+  prewarmed.add(project.directory)
+  const start = Date.now()
+  try {
+    await input.client.project.current({ query: { directory: project.directory } })
+    pluginLogger.info(
+      `prewarm.ok slug=${project.slug} dir=${project.directory} elapsed_ms=${Date.now() - start}`,
+    )
+  } catch (error) {
+    prewarmed.delete(project.directory)
+    pluginLogger.warn(
+      `prewarm.failed slug=${project.slug} dir=${project.directory} elapsed_ms=${Date.now() - start}`,
+      error,
+    )
+  }
+}
+
+export const OpencodeManagerWorkspacePlugin: Plugin = async (input, options) => {
   try {
     const cfg = resolveConfig(options)
-    pluginLogger.info(
-      `plugin.init url=${cfg.url} env.OPENCODE_EXPERIMENTAL_WORKSPACES=${process.env.OPENCODE_EXPERIMENTAL_WORKSPACES ?? "unset"} env.OPENCODE_EXPERIMENTAL=${process.env.OPENCODE_EXPERIMENTAL ?? "unset"}`,
-    )
+    pluginLogger.info(`plugin.init url=${cfg.url}`)
     const client = new ManagerClient(cfg.url, cfg.token)
     const projects = await client.listProjects()
     pluginLogger.info(`plugin.init loaded ${projects.length} project(s)`)
     for (const project of projects) {
-      pluginLogger.info(`plugin.register slug=${project.slug} name=${project.name}`)
-      experimental_workspace.register(`manager:${project.slug}`, makeAdaptor(cfg, project))
+      input.experimental_workspace.register(`manager:${project.slug}`, makeAdaptor(cfg, project))
     }
     pluginLogger.info(`plugin.ready`)
+    void Promise.all(projects.map((project) => prewarmProject(input, project)))
     return {}
   } catch (error) {
     pluginLogger.error(`plugin.init failed`, error)

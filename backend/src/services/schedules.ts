@@ -1094,28 +1094,45 @@ function buildIntervalCronExpression(intervalMinutes: number): string | null {
 
 export class ScheduleRunner {
   private cronJobs = new Map<number, Stoppable>()
+  private isStarted = false
+  private readonly onJobChange = (job: ScheduleJob | null, jobId: number): void => {
+    if (job) {
+      this.registerJob(job)
+    } else {
+      this.unregisterJob(jobId)
+    }
+  }
 
   constructor(private readonly scheduleService: ScheduleService) {}
 
   async start(): Promise<void> {
-    this.scheduleService.setJobChangeHandler((job, jobId) => {
-      if (job) {
-        this.registerJob(job)
-      } else {
-        this.unregisterJob(jobId)
-      }
-    })
+    if (this.isStarted) {
+      return
+    }
 
-    await this.scheduleService.recoverRunningRuns()
-    this.registerAllEnabledJobs()
+    this.isStarted = true
+    this.scheduleService.setJobChangeHandler(this.onJobChange)
+
+    try {
+      await this.scheduleService.recoverRunningRuns()
+      this.registerAllEnabledJobs()
+    } catch (error) {
+      this.stop()
+      throw error
+    }
   }
 
   stop(): void {
+    if (!this.isStarted) {
+      return
+    }
+
     this.scheduleService.setJobChangeHandler(null)
     for (const stoppable of this.cronJobs.values()) {
       stoppable.stop()
     }
     this.cronJobs.clear()
+    this.isStarted = false
   }
 
   registerJob(job: ScheduleJob): void {

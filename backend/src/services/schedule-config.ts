@@ -35,11 +35,15 @@ function validateTimeZone(timezone: string): string {
 
 function getCronNextRunAt(cronExpression: string, timezone: string, currentDate: number): number {
   const cron = new Cron(cronExpression, { timezone })
-  const next = cron.nextRun(new Date(currentDate))
-  if (!next) {
-    throw new Error(`Cron expression "${cronExpression}" has no upcoming run`)
+  try {
+    const next = cron.nextRun(new Date(currentDate))
+    if (!next) {
+      throw new Error(`Cron expression "${cronExpression}" has no upcoming run`)
+    }
+    return next.getTime()
+  } finally {
+    cron.stop()
   }
-  return next.getTime()
 }
 
 function normalizeCronConfig(cronExpression: string, timezone: string | null | undefined, currentDate: number) {

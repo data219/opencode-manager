@@ -1,6 +1,8 @@
 # @opencode-manager/workspace-plugin
 
-Connect your local OpenCode TUI to a running opencode-manager instance and use its projects as remote workspaces.
+Connect your local OpenCode TUI to a running opencode-manager instance and use its projects as local workspaces.
+
+The plugin queries the manager for the list of projects, then configures each workspace to use the project's local directory. The manager is only used for project discovery; all session operations run in-process against the local repository.
 
 ## Installation
 
@@ -21,19 +23,19 @@ Add the plugin to your `opencode.json` configuration:
 
 ### Options
 
-- `url` (required): The base URL of your opencode-manager instance
-- `token` (required): Bearer token created from the manager's Settings page
+- `url` (required): Base URL of your opencode-manager instance. Used only to fetch the project list.
+- `token` (required): Bearer token created from the manager's Settings page.
 
 ### Environment Variables
 
-As an alternative to configuring in `opencode.json`, you can use:
+As an alternative to configuring in `opencode.json`:
 
-- `OPENCODE_MANAGER_URL`: The base URL of your opencode-manager instance
-- `OPENCODE_MANAGER_TOKEN`: Bearer token for authentication
+- `OPENCODE_MANAGER_URL`: Base URL of your opencode-manager instance
+- `OPENCODE_MANAGER_TOKEN`: Bearer token for manager discovery
 
 ## Usage
 
-Once configured, the plugin will automatically discover all projects in your opencode-manager instance and register them as remote workspaces. Each project will appear in the OpenCode TUI workspace picker as `manager:<slug>`.
+Once configured, the plugin will discover all projects in your opencode-manager instance and register them as local workspaces. Each project appears in the OpenCode TUI workspace picker as `manager:<slug>`.
 
 ### Creating a Bearer Token
 
@@ -46,22 +48,32 @@ Once configured, the plugin will automatically discover all projects in your ope
 
 ### Token Scope
 
-Tokens created for the workspace plugin have the `workspace-plugin` scope by default. This restricts their access to only the workspace plugin endpoints.
+Tokens created for the workspace plugin have the `workspace-plugin` scope by default. This restricts their access to the `/api/workspace-plugin/projects` endpoint.
+
+### Using the TUI
+
+After starting the opencode-manager server, connect the TUI with:
+
+```bash
+opencode attach http://localhost:5551
+```
+
+Select a workspace from the manager's project list. Each workspace is rooted at the project's local repository directory.
 
 ## How It Works
 
-1. On startup, the plugin calls `GET /api/workspace-plugin/projects` on the manager
-2. For each project returned, it registers a `WorkspaceAdaptor` with type `manager:<slug>`
-3. When you select a workspace in the TUI, the adaptor provides:
-   - Remote target URL: `<manager>/api/opencode`
-   - Authorization header: `Bearer <token>`
-   - Project slug header: `x-opencode-manager-project: <slug>`
+1. On startup, the plugin calls `GET /api/workspace-plugin/projects` on the manager to enumerate projects.
+2. For each project, it registers a `WorkspaceAdaptor` as `manager:<slug>`.
+3. When the user selects a workspace, the adaptor returns a `type: "local"` target with the project's directory.
+4. All session/message/event traffic flows through the in-process opencode server, scoped to the project's directory.
 
-The manager then proxies requests to the embedded OpenCode server with the appropriate `?directory=` parameter.
+### TUI pre-warming
+
+The package also ships a TUI plugin (`./tui` subpath) that opencode loads alongside the server plugin. It listens for `session.created` and `workspace.status` events, and when a `manager:*` workspace becomes active it pre-fetches the workspace-scoped endpoints (`config`, `providers`, `agents`, `commands`, `vcs`, `session.status`, etc.) so that the TUI's own `sync.bootstrap` resolves from warm server-side state.
+
+This avoids the race where a newly created workspace appears empty on the first session open and only renders correctly after navigating back and re-entering. No user configuration is required — the single `plugin` entry in `opencode.json` activates both halves.
 
 ## Security Notes
 
-- Bearer tokens are stored hashed (SHA-256) in the manager database
-- Tokens are shown only once on creation
-- Tokens can be revoked at any time from the Settings page
-- Tokens bypass CORS origin requirements (explicit opt-in authentication)
+- The manager bearer token is only used for project discovery. It never reaches the opencode server.
+- Manager bearer tokens are stored hashed (SHA-256) in the manager database and shown only once on creation.

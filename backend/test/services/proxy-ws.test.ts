@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 
-vi.mock('bun:sqlite', () => ({
-  Database: vi.fn(),
-}))
-
 vi.mock('@opencode-manager/shared/config/env', () => ({
   ENV: {
     OPENCODE: { PORT: 5551, HOST: '127.0.0.1' },
@@ -62,19 +58,19 @@ function createMockServer() {
   }
 }
 
-async function triggerUpgrade(options?: { slug?: string }) {
+async function triggerUpgrade() {
   const { attachWorkspacePluginWs } = await import('../../src/services/proxy-ws')
   const { server, emitter } = createMockServer()
   const socket = createMockSocket()
+
   const mockReq = {
-    url: '/api/opencode/test',
-    headers: options?.slug ? { 'x-opencode-manager-project': options.slug } : {},
+    url: `/api/opencode/test`,
+    headers: {},
   } as unknown as Parameters<typeof attachWorkspacePluginWs>[0] extends never ? never : unknown
 
   attachWorkspacePluginWs(server as Parameters<typeof attachWorkspacePluginWs>[0], {
     upstreamBaseUrl: 'http://127.0.0.1:5551',
     verifyAuth: vi.fn().mockResolvedValue({ userId: 'u', scope: 's' }),
-    projectService: options?.slug ? { getBySlug: vi.fn(() => ({ directory: '/test' })) } : undefined,
   })
 
   emitter.emit('upgrade', mockReq, socket, Buffer.from([]))
