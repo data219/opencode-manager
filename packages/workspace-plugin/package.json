@@ -2,10 +2,10 @@
   "name": "@opencode-manager/workspace-plugin",
   "version": "0.1.0",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.js"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.14.0",
@@ -20,6 +20,7 @@
     "zod": "^4.1.12"
   },
   "scripts": {
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "lint": "eslint . --ext .ts"

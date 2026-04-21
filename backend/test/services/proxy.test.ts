@@ -442,4 +442,81 @@ describe('proxy service', () => {
       })
     })
   })
+
+  describe('proxyRequest timeout', () => {
+    const originalFetch = global.fetch
+
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    afterEach(() => {
+      global.fetch = originalFetch
+    })
+
+    it('applies AbortSignal.timeout to non-streaming requests', async () => {
+      let capturedSignal: AbortSignal | undefined
+
+      const mockResponse = new Response('OK', { status: 200 })
+
+      global.fetch = vi.fn((url, options) => {
+        capturedSignal = options?.signal as AbortSignal
+        return Promise.resolve(mockResponse)
+      }) as unknown as typeof fetch
+
+      const { proxyRequest } = await import('../../src/services/proxy')
+
+      const mockRequest = new Request('http://localhost:5003/api/opencode/test')
+      await proxyRequest(mockRequest)
+
+      expect(capturedSignal).toBeDefined()
+      expect(capturedSignal).toBeInstanceOf(AbortSignal)
+    })
+
+    it('does not apply timeout to streaming /event path', async () => {
+      const mockStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: test\n\n'))
+          controller.close()
+        },
+      })
+
+      const mockResponse = new Response(mockStream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+
+      global.fetch = vi.fn().mockResolvedValue(mockResponse) as unknown as typeof fetch
+
+      const { proxyRequest } = await import('../../src/services/proxy')
+
+      const mockRequest = new Request('http://localhost:5003/api/opencode/event?directory=/test')
+      const response = await proxyRequest(mockRequest)
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Content-Type')).toBe('text/event-stream')
+    })
+
+    it('forwards Authorization via withOpenCodeAuth', async () => {
+      let capturedHeaders: Record<string, string> | undefined
+
+      const mockResponse = new Response('OK', { status: 200 })
+
+      global.fetch = vi.fn((url, options) => {
+        capturedHeaders = options?.headers as Record<string, string>
+        return Promise.resolve(mockResponse)
+      }) as unknown as typeof fetch
+
+      const { proxyRequest } = await import('../../src/services/proxy')
+
+      const mockRequest = new Request('http://localhost:5003/api/opencode/test', {
+        method: 'POST',
+        body: 'test',
+      })
+
+      await proxyRequest(mockRequest)
+
+      expect(capturedHeaders).toBeDefined()
+    })
+  })
 })

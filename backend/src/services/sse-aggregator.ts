@@ -2,6 +2,7 @@ import { EventSource } from 'eventsource'
 import { logger } from '../utils/logger'
 import { ENV } from '@opencode-manager/shared/config/env'
 import { DEFAULTS } from '@opencode-manager/shared/config'
+import { withOpenCodeAuth } from './proxy'
 
 type SSEClientCallback = (event: string, data: string) => void
 type SSEEventListener = (directory: string, event: SSEEvent) => void
@@ -19,6 +20,7 @@ interface DirectoryConnection {
   reconnectTimeout: ReturnType<typeof setTimeout> | null
   reconnectDelay: number
   isConnected: boolean
+  consecutiveFailures: number
 }
 
 export interface SSEEvent {
@@ -28,6 +30,7 @@ export interface SSEEvent {
 
 const OPENCODE_PORT = ENV.OPENCODE.PORT
 const { RECONNECT_DELAY_MS, MAX_RECONNECT_DELAY_MS, IDLE_GRACE_PERIOD_MS } = DEFAULTS.SSE
+const { WARN_EVERY_N_FAILURES } = DEFAULTS
 
 class SSEAggregator {
   private static instance: SSEAggregator
@@ -124,7 +127,8 @@ class SSEAggregator {
       eventSource: null,
       reconnectTimeout: null,
       reconnectDelay: RECONNECT_DELAY_MS,
-      isConnected: false
+      isConnected: false,
+      consecutiveFailures: 0
     }
     this.connections.set(directory, conn)
 
@@ -143,19 +147,31 @@ class SSEAggregator {
     const url = new URL(`http://127.0.0.1:${OPENCODE_PORT}/event`)
     url.searchParams.set('directory', directory)
     
-    logger.info(`SSE connecting to OpenCode: ${directory}`)
+    logger.debug(`SSE connecting to OpenCode: ${directory}`)
 
-    const eventSource = new EventSource(url.toString())
+    const eventSource = new EventSource(url.toString(), {
+      fetch: (input, init) =>
+        fetch(input, {
+          ...init,
+          headers: withOpenCodeAuth({ ...(init?.headers as Record<string, string> | undefined) }),
+        }),
+    })
     conn.eventSource = eventSource
 
     eventSource.onopen = () => {
       logger.info(`SSE connected: ${directory}`)
       conn.isConnected = true
       conn.reconnectDelay = RECONNECT_DELAY_MS
+      conn.consecutiveFailures = 0
     }
 
     eventSource.onerror = () => {
       conn.isConnected = false
+      conn.consecutiveFailures += 1
+
+      if (conn.consecutiveFailures === 1 || conn.consecutiveFailures % WARN_EVERY_N_FAILURES === 0) {
+        logger.warn(`SSE upstream unreachable for ${directory} (attempt ${conn.consecutiveFailures})`)
+      }
 
       if (conn.eventSource) {
         conn.eventSource.close()

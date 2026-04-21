@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger'
 import { ENV } from '@opencode-manager/shared/config/env'
 import { parseJsonc } from '@opencode-manager/shared/utils'
+import { buildFetchSignal, PROXY_REQUEST_TIMEOUT_MS } from '../utils/proxy-timeout'
 
 export const OPENCODE_SERVER_URL = `http://${ENV.OPENCODE.HOST}:${ENV.OPENCODE.PORT}`
 const OPENCODE_SERVER_PASSWORD = ENV.OPENCODE.SERVER_PASSWORD
@@ -330,6 +331,7 @@ export async function proxyRequest(request: Request, projectService?: ProxyProje
     const fetchOptions: RequestInit & { duplex?: string } = {
       method: request.method,
       headers: withOpenCodeAuth(headers),
+      signal: buildFetchSignal(url.pathname, PROXY_REQUEST_TIMEOUT_MS),
     }
 
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -359,9 +361,10 @@ export async function proxyRequest(request: Request, projectService?: ProxyProje
       headers: responseHeaders,
     })
   } catch (error) {
+    const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     logger.error(`Proxy request failed for ${url.pathname}${url.search}:`, error)
-    return new Response(JSON.stringify({ error: 'Proxy request failed' }), {
-      status: 502,
+    return new Response(JSON.stringify({ error: isTimeout ? 'Upstream timeout' : 'Proxy request failed' }), {
+      status: isTimeout ? 504 : 502,
       headers: { 'Content-Type': 'application/json' },
     })
   }
@@ -385,6 +388,7 @@ export async function proxyToOpenCodeWithDirectory(
       method,
       headers: withOpenCodeAuth(headers || { 'Content-Type': 'application/json' }),
       body,
+      signal: buildFetchSignal(url.pathname, PROXY_REQUEST_TIMEOUT_MS),
     })
     
     const responseHeaders: Record<string, string> = {}
@@ -402,9 +406,10 @@ export async function proxyToOpenCodeWithDirectory(
       headers: responseHeaders,
     })
   } catch (error) {
+    const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     logger.error(`Proxy to OpenCode failed for ${path}:`, error)
-    return new Response(JSON.stringify({ error: 'Proxy request failed' }), {
-      status: 502,
+    return new Response(JSON.stringify({ error: isTimeout ? 'Upstream timeout' : 'Proxy request failed' }), {
+      status: isTimeout ? 504 : 502,
       headers: { 'Content-Type': 'application/json' },
     })
   }
@@ -425,6 +430,7 @@ export async function proxyMcpAuthStart(
     const response = await fetch(url.toString(), {
       method: 'POST',
       headers: withOpenCodeAuth({ 'Content-Type': 'application/json' }),
+      signal: buildFetchSignal(url.pathname, PROXY_REQUEST_TIMEOUT_MS),
     })
     
     const responseBody = await response.text()
@@ -433,9 +439,10 @@ export async function proxyMcpAuthStart(
       headers: { 'Content-Type': response.headers.get('Content-Type') || 'application/json' },
     })
   } catch (error) {
+    const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     logger.error(`MCP auth start failed for ${serverName}:`, error)
-    return new Response(JSON.stringify({ error: 'MCP auth start failed' }), {
-      status: 502,
+    return new Response(JSON.stringify({ error: isTimeout ? 'Upstream timeout' : 'MCP auth start failed' }), {
+      status: isTimeout ? 504 : 502,
       headers: { 'Content-Type': 'application/json' },
     })
   }
@@ -456,6 +463,7 @@ export async function proxyMcpAuthAuthenticate(
     const response = await fetch(url.toString(), {
       method: 'POST',
       headers: withOpenCodeAuth({ 'Content-Type': 'application/json' }),
+      signal: buildFetchSignal(url.pathname, PROXY_REQUEST_TIMEOUT_MS),
     })
     
     const responseBody = await response.text()
@@ -464,9 +472,10 @@ export async function proxyMcpAuthAuthenticate(
       headers: { 'Content-Type': response.headers.get('Content-Type') || 'application/json' },
     })
   } catch (error) {
+    const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     logger.error(`MCP auth authenticate failed for ${serverName}:`, error)
-    return new Response(JSON.stringify({ error: 'MCP auth authenticate failed' }), {
-      status: 502,
+    return new Response(JSON.stringify({ error: isTimeout ? 'Upstream timeout' : 'MCP auth authenticate failed' }), {
+      status: isTimeout ? 504 : 502,
       headers: { 'Content-Type': 'application/json' },
     })
   }

@@ -3,6 +3,7 @@ import type { Duplex } from 'node:stream'
 import { WebSocketServer, WebSocket } from 'ws'
 import { logger } from '../utils/logger'
 import { OPENCODE_SERVER_URL, withOpenCodeAuth } from './proxy'
+import { WS_UPSTREAM_CONNECT_TIMEOUT_MS } from '@opencode-manager/shared/config/defaults'
 
 interface AuthResult {
   userId: string
@@ -133,13 +134,24 @@ export function attachWorkspacePluginWs(server: Server, options: WebSocketProxyO
       const upstreamHeaders = withOpenCodeAuth({})
       const upstream = new WebSocket(upstreamWsUrl, { headers: upstreamHeaders })
 
+      const connectTimer = setTimeout(() => {
+        try {
+          upstream.terminate()
+        } catch {
+          // ignore
+        }
+        rejectUpgrade(socket, 504, 'Gateway Timeout')
+      }, WS_UPSTREAM_CONNECT_TIMEOUT_MS)
+
       const onUpstreamError = (error: Error): void => {
+        clearTimeout(connectTimer)
         logger.error('Upstream WebSocket connect error:', error)
         rejectUpgrade(socket, 502, 'Bad Gateway')
       }
 
       upstream.once('error', onUpstreamError)
       upstream.once('open', () => {
+        clearTimeout(connectTimer)
         upstream.off('error', onUpstreamError)
         wss.handleUpgrade(req, socket, head, (clientWs) => {
           bridge(clientWs, upstream)

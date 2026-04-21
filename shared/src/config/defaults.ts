@@ -50,6 +50,13 @@ export const DEFAULTS = {
     IDLE_GRACE_PERIOD_MS: 5000,
     HEARTBEAT_INTERVAL_MS: 60000,
   },
+
+  PROXY: {
+    REQUEST_TIMEOUT_MS: 30_000,
+    WS_CONNECT_TIMEOUT_MS: 10_000,
+  },
+
+  WARN_EVERY_N_FAILURES: 5,
 } as const
 
 export const ALLOWED_MIME_TYPES = [
@@ -74,6 +81,10 @@ export const GIT_PROVIDERS = {
   GITLAB: 'gitlab.com',
   BITBUCKET: 'bitbucket.org',
 } as const
+
+export const PROXY_REQUEST_TIMEOUT_MS = DEFAULTS.PROXY.REQUEST_TIMEOUT_MS
+export const WS_UPSTREAM_CONNECT_TIMEOUT_MS = DEFAULTS.PROXY.WS_CONNECT_TIMEOUT_MS
+export const WARN_EVERY_N_FAILURES = DEFAULTS.WARN_EVERY_N_FAILURES
 
 export type Config = typeof DEFAULTS
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number]

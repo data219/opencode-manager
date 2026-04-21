@@ -1,4 +1,5 @@
 import { spawn, execSync } from 'child_process'
+import { createWriteStream, type WriteStream } from 'fs'
 import path from 'path'
 import { promises as fs } from 'fs'
 import { logger } from '../utils/logger'
@@ -91,6 +92,10 @@ function formatStartupError(stderrOutput: string, fallback: string): string {
 const getOpenCodeServerDirectory = () => getWorkspacePath()
 const getOpenCodeConfigPath = () => getOpenCodeConfigFilePath()
 
+const OPENCODE_LOG_DIR = path.join(process.cwd(), 'logs')
+const OPENCODE_LOG_FILE = path.join(OPENCODE_LOG_DIR, 'opencode-server.log')
+const OPENCODE_LOG_PREV_FILE = path.join(OPENCODE_LOG_DIR, 'opencode-server.prev.log')
+
 class OpenCodeServerManager {
   private static instance: OpenCodeServerManager
   private serverProcess: ReturnType<typeof spawn> | null = null
@@ -99,6 +104,7 @@ class OpenCodeServerManager {
   private db: Database | null = null
   private version: string | null = null
   private lastStartupError: string | null = null
+  private logStream: WriteStream | null = null
 
   private constructor() {}
 
@@ -246,13 +252,21 @@ class OpenCodeServerManager {
     delete cleanEnv.OPENCODE_PID
     delete cleanEnv.OPENCODE
 
+    await fs.mkdir(OPENCODE_LOG_DIR, { recursive: true }).catch(() => {})
+    await fs.rename(OPENCODE_LOG_FILE, OPENCODE_LOG_PREV_FILE).catch(() => {})
+    this.logStream = createWriteStream(OPENCODE_LOG_FILE, { flags: 'a' })
+    const logStream = this.logStream
+    const startBanner = `\n===== opencode server started at ${new Date().toISOString()} port=${OPENCODE_SERVER_PORT} cwd=${openCodeServerDirectory} =====\n`
+    logStream.write(startBanner)
+    logger.info(`OpenCode server logs: ${OPENCODE_LOG_FILE}`)
+
     this.serverProcess = spawn(
       'opencode',
-      ['serve', '--port', OPENCODE_SERVER_PORT.toString(), '--hostname', OPENCODE_SERVER_HOST],
+      ['serve', '--port', OPENCODE_SERVER_PORT.toString(), '--hostname', OPENCODE_SERVER_HOST, '--print-logs', '--log-level', 'DEBUG'],
       {
         cwd: openCodeServerDirectory,
         detached: !isDevelopment,
-        stdio: isDevelopment ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...cleanEnv,
           ...gitEnv,
@@ -272,8 +286,15 @@ class OpenCodeServerManager {
       }
     )
 
-    if (!isDevelopment && this.serverProcess.stderr) {
+    if (this.serverProcess.stdout) {
+      this.serverProcess.stdout.on('data', (data) => {
+        logStream.write(data)
+      })
+    }
+
+    if (this.serverProcess.stderr) {
       this.serverProcess.stderr.on('data', (data) => {
+        logStream.write(data)
         stderrOutput += data.toString()
         if (stderrOutput.length > MAX_STDERR_SIZE) {
           stderrOutput = stderrOutput.slice(-MAX_STDERR_SIZE)
@@ -282,6 +303,10 @@ class OpenCodeServerManager {
     }
 
     this.serverProcess.on('exit', (code, signal) => {
+      const exitBanner = `\n===== opencode server exited at ${new Date().toISOString()} code=${code} signal=${signal} =====\n`
+      logStream.write(exitBanner)
+      logStream.end()
+      this.logStream = null
       if (code !== null && code !== 0) {
         const fallback = `Server exited with code ${code}${stderrOutput ? `: ${stderrOutput.slice(-500)}` : ''}`
         this.lastStartupError = formatStartupError(stderrOutput, fallback)
