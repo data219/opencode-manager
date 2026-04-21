@@ -12,7 +12,7 @@ export function resolveConfig(options: unknown): { url: string; token: string } 
   return { url, token }
 }
 
-function makeAdaptor(cfg: { url: string; token: string }, project: ManagerProject): WorkspaceAdaptor {
+export function makeAdaptor(cfg: { url: string; token: string }, project: ManagerProject): WorkspaceAdaptor {
   return {
     name: `Manager: ${project.name}`,
     description: `Connect to the "${project.name}" project on opencode-manager at ${cfg.url}`,
@@ -32,9 +32,15 @@ function makeAdaptor(cfg: { url: string; token: string }, project: ManagerProjec
       pluginLogger.info(`adaptor.remove slug=${project.slug} info=${JSON.stringify(info)}`)
     },
     target(info) {
-      const result = { type: "local" as const, directory: project.directory }
+      const base = cfg.url.replace(/\/$/, "")
+      const url = `${base}/api/workspace-plugin/opencode/${encodeURIComponent(project.slug)}`
+      const result = {
+        type: "remote" as const,
+        url,
+        headers: { Authorization: `Bearer ${cfg.token}` },
+      }
       pluginLogger.info(
-        `adaptor.target slug=${project.slug} input=${JSON.stringify(info)} output=${JSON.stringify(result)}`,
+        `adaptor.target slug=${project.slug} input=${JSON.stringify(info)} output=${JSON.stringify({ type: result.type, url: result.url })}`,
       )
       return result
     },

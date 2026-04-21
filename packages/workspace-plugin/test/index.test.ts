@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { PluginOptionsSchema } from '../src/types'
 import { resolveConfig } from '../src/index'
+import type { WorkspaceInfo } from '@opencode-ai/plugin'
 
 describe('PluginOptionsSchema', () => {
   it('accepts url from options', () => {
@@ -67,5 +68,42 @@ describe('resolveConfig', () => {
   it('throws when token missing from both options and env', () => {
     process.env.OPENCODE_MANAGER_URL = 'http://env.com'
     expect(() => resolveConfig({})).toThrow(/missing `token`/)
+  })
+})
+
+describe('adaptor.target', () => {
+  const sampleInfo: WorkspaceInfo = {
+    name: 'Test Workspace',
+    directory: '/test/dir',
+    extra: {},
+  }
+
+  it('returns { type: "remote", url, headers } with bearer auth when target is invoked', async () => {
+    const { makeAdaptor } = await import('../src/index.js')
+    const cfg = { url: 'http://manager.test:5003', token: 'tok-abc' }
+    const project = { slug: '42', name: 'Test Project', directory: '/workspace/repos/test' }
+    const adaptor = makeAdaptor(cfg, project)
+    const result = adaptor.target(sampleInfo)
+    expect(result.type).toBe('remote')
+    expect(result.url).toBe('http://manager.test:5003/api/workspace-plugin/opencode/42')
+    expect(result.headers).toEqual({ Authorization: 'Bearer tok-abc' })
+  })
+
+  it('url-encodes special slug characters', async () => {
+    const { makeAdaptor } = await import('../src/index.js')
+    const cfg = { url: 'http://manager.test:5003', token: 'tok-abc' }
+    const project = { slug: 'a/b c', name: 'Test Project', directory: '/workspace/repos/test' }
+    const adaptor = makeAdaptor(cfg, project)
+    const result = adaptor.target(sampleInfo)
+    expect(result.url).toContain('a%2Fb%20c')
+  })
+
+  it('strips trailing slash from manager url', async () => {
+    const { makeAdaptor } = await import('../src/index.js')
+    const cfg = { url: 'http://manager.test:5003/', token: 'tok-abc' }
+    const project = { slug: '42', name: 'Test Project', directory: '/workspace/repos/test' }
+    const adaptor = makeAdaptor(cfg, project)
+    const result = adaptor.target(sampleInfo)
+    expect(result.url).toBe('http://manager.test:5003/api/workspace-plugin/opencode/42')
   })
 })

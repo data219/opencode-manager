@@ -413,20 +413,30 @@ const server = serve({
 
 import { OPENCODE_SERVER_URL } from './services/proxy'
 
+const verifyPluginBearerAuth = async (headers: Headers): Promise<{ userId: string; scope: string } | null> => {
+  const authHeader = headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const raw = authHeader.slice(7).trim()
+    const verified = apiTokenService.verify(raw)
+    if (verified) {
+      return { userId: verified.userId, scope: verified.scope }
+    }
+  }
+  return null
+}
+
 attachWorkspacePluginWs(server, {
   upstreamBaseUrl: OPENCODE_SERVER_URL,
-  verifyAuth: async (headers) => {
-    const authHeader = headers.get('authorization')
-    if (authHeader?.startsWith('Bearer ')) {
-      const raw = authHeader.slice(7).trim()
-      const verified = apiTokenService.verify(raw)
-      if (verified) {
-        return { userId: verified.userId, scope: verified.scope }
-      }
-    }
-    return null
-  },
+  verifyAuth: verifyPluginBearerAuth,
   projectService,
+  pathPrefix: '/api/opencode',
+})
+
+attachWorkspacePluginWs(server, {
+  upstreamBaseUrl: OPENCODE_SERVER_URL,
+  verifyAuth: verifyPluginBearerAuth,
+  projectService,
+  pathPrefix: '/api/workspace-plugin/opencode',
 })
 
 logger.info(`🚀 OpenCode WebUI API running on http://${HOST}:${PORT}`)
