@@ -77,12 +77,12 @@ export const useModelStore = create<ModelStore>()(
       },
 
       validateAndSyncModel: (configModel: string | undefined, providers?: Provider[]) => {
-        if (!configModel) return
-
         const state = get()
 
         if (!providers) {
-          get().syncFromConfig(configModel)
+          if (configModel) {
+            get().syncFromConfig(configModel)
+          }
           return
         }
 
@@ -100,7 +100,31 @@ export const useModelStore = create<ModelStore>()(
         }
 
         if (!currentModelExists) {
-          get().syncFromConfig(configModel, true)
+          if (configModel) {
+            get().syncFromConfig(configModel, true)
+            return
+          }
+
+          const firstProvider = providers.find((provider) => Object.keys(provider.models ?? {}).length > 0)
+          const firstModelID = firstProvider ? Object.keys(firstProvider.models)[0] : null
+
+          if (firstProvider && firstModelID) {
+            const fallbackModel: ModelSelection = {
+              providerID: firstProvider.id,
+              modelID: firstModelID,
+            }
+            const newRecent = [
+              fallbackModel,
+              ...cleanedRecentModels.filter(
+                (m) => !(m.providerID === fallbackModel.providerID && m.modelID === fallbackModel.modelID)
+              ),
+            ].slice(0, MAX_RECENT_MODELS)
+
+            set({ model: fallbackModel, recentModels: newRecent })
+            return
+          }
+
+          set({ model: null })
         }
       },
 
